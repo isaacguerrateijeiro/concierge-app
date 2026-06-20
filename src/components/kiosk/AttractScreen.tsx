@@ -1,36 +1,42 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Lang, LOCATIONS, T } from "./data";
+import { Lang, ui } from "./data";
 import Icon from "./Icon";
 
-// Las 3 escenas que rotan cada 4.5 segundos
+// Las 3 escenas (fondos animados) son parte de la estética del frontal.
 const SCENES = [
   {
     bg: "radial-gradient(at 70% 20%, #E89C5C 0%, transparent 50%), linear-gradient(180deg, #F4D88A 0%, #C04A2A 55%, #2A1810 100%)",
-    tag: { es: "Madrid", en: "Madrid" },
+    tag: { es: "Madrid", en: "Madrid" } as Record<string, string>,
   },
   {
     bg: "radial-gradient(at 50% 30%, rgba(242,194,0,0.4) 0%, transparent 55%), linear-gradient(180deg, #0E2A4A 0%, #16140F 100%)",
-    tag: { es: "Vívelo", en: "Live it" },
+    tag: { es: "Vívelo", en: "Live it" } as Record<string, string>,
   },
   {
     bg: "radial-gradient(at 30% 70%, rgba(242,194,0,0.3) 0%, transparent 50%), linear-gradient(180deg, #1B2438 0%, #0A0E1A 100%)",
-    tag: { es: "A tu aire", en: "Your way" },
+    tag: { es: "A tu aire", en: "Your way" } as Record<string, string>,
   },
 ];
-
-const PARTNERS = ["Bolt", "Big Bus", "ChangeGroup", "Julia Travel", "Madrid a Pie", "RACE", "Prosegur"];
 
 interface AttractScreenProps {
   lang: Lang;
   setLang: (l: Lang) => void;
+  locales: string[];
   onStart: () => void;
+  locationName: string;
+  partners: string[];
 }
 
-export default function AttractScreen({ lang, setLang, onStart }: AttractScreenProps) {
-  const t = T[lang];
-  const location = LOCATIONS[0];
+export default function AttractScreen({
+  lang,
+  setLang,
+  locales,
+  onStart,
+  locationName,
+  partners,
+}: AttractScreenProps) {
   // idx controla qué escena se muestra (0, 1 o 2)
   const [idx, setIdx] = useState(0);
 
@@ -41,6 +47,7 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
   }, []);
 
   const scene = SCENES[idx];
+  const sceneTag = scene.tag[lang] ?? Object.values(scene.tag)[0];
 
   return (
     <div
@@ -70,61 +77,13 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
           height: 96,
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           padding: "0 44px",
           zIndex: 50,
           color: "#fff",
         }}
       >
-        {/* Logo M + ubicación */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              background: "rgba(255,255,255,0.18)",
-              display: "grid",
-              placeItems: "center",
-              fontFamily: "var(--serif)",
-              fontSize: 30,
-              fontStyle: "italic",
-              flexShrink: 0,
-            }}
-          >
-            M
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
-            <div
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 11,
-                letterSpacing: "0.24em",
-                textTransform: "uppercase",
-                opacity: 0.65,
-              }}
-            >
-              {lang === "es" ? "Concierge digital" : "Digital concierge"}
-            </div>
-            <div
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 13,
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                marginTop: 3,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <Icon name="pin" size={13} sw={2} stroke="#fff" />
-              Madrid · {location.name}
-            </div>
-          </div>
-        </div>
-
-        {/* Selector de idioma ES / EN */}
+        {/* Selector de idioma (desde tenant.locales) */}
         <div
           style={{
             display: "flex",
@@ -133,7 +92,7 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             background: "rgba(255,255,255,0.15)",
           }}
         >
-          {(["es", "en"] as Lang[]).map((L) => (
+          {locales.map((L) => (
             <button
               key={L}
               onClick={() => setLang(L)}
@@ -190,7 +149,7 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
           }}
         >
           <Icon name="pin" size={14} sw={2} stroke="#fff" />
-          Madrid · {location.name}
+          {locationName}
         </div>
 
         {/* "Concierge digital" */}
@@ -206,10 +165,10 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             animationDelay: "0.1s",
           }}
         >
-          {lang === "es" ? "Concierge digital" : "Digital concierge"}
+          {ui(lang, "concierge")}
         </div>
 
-        {/* "Hola" — siempre fijo */}
+        {/* Saludo grande */}
         <div
           style={{
             fontFamily: "var(--serif)",
@@ -219,7 +178,7 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             whiteSpace: "nowrap",
           }}
         >
-          Hola
+          {ui(lang, "hello")}
         </div>
 
         {/* Subtítulo rotante — cambia con cada escena */}
@@ -236,7 +195,7 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             minHeight: 110,
           }}
         >
-          {scene.tag[lang]}
+          {sceneTag}
         </div>
 
         {/* Descripción */}
@@ -254,12 +213,10 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             animationDelay: "0.2s",
           }}
         >
-          {lang === "es"
-            ? "Tours, taxis, museos, divisa…\nUn único asistente para tu visita."
-            : "Tours, taxis, museums, currency…\nOne assistant for your whole visit."}
+          {ui(lang, "attractDesc")}
         </div>
 
-        {/* Pastillas de socios */}
+        {/* Pastillas de socios (proveedores del catálogo) */}
         <div
           className="fade-in"
           style={{
@@ -273,7 +230,7 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             animationDelay: "0.3s",
           }}
         >
-          {PARTNERS.map((p) => (
+          {partners.map((p) => (
             <div
               key={p}
               style={{
@@ -314,12 +271,12 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             animation: "pulseRing 2.4s ease-out infinite, bounce 2.4s ease-in-out infinite",
           }}
         >
-          {t.tap}
+          {ui(lang, "tap")}
           <Icon name="arrow-right" size={36} sw={2.4} stroke="var(--ink)" />
         </button>
       </div>
 
-      {/* ── Puntos de paginación (abajo) ── */}
+      {/* ── Puntos de paginación ── */}
       <div
         style={{
           position: "absolute",
@@ -343,27 +300,6 @@ export default function AttractScreen({ lang, setLang, onStart }: AttractScreenP
             }}
           />
         ))}
-      </div>
-
-      {/* "Powered by PROSEGUR" */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 36,
-          left: 0,
-          right: 0,
-          textAlign: "center",
-          fontFamily: "var(--mono)",
-          fontSize: 11,
-          letterSpacing: "0.3em",
-          textTransform: "uppercase",
-          color: "rgba(255,255,255,0.5)",
-        }}
-      >
-        powered by{" "}
-        <span style={{ fontWeight: 800, letterSpacing: "0.4em", marginLeft: 8, color: "#fff" }}>
-          PROSEGUR
-        </span>
       </div>
     </div>
   );

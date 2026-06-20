@@ -1,12 +1,14 @@
 "use client";
 
-import { SERVICES, CATEGORIES, T, Lang, Service } from "./data";
+import { Lang, ui, INTL_LOCALES } from "./data";
+import { Catalog, CatalogService, tx } from "@/lib/catalog";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icon";
 
 interface HomeScreenProps {
+  catalog: Catalog;
   lang: Lang;
-  onSelect?: (id: string) => void;
+  onSelect?: (slug: string) => void;
 }
 
 function CategoryHeader({
@@ -89,14 +91,25 @@ function ServiceTile({
   delay = 0,
   big = false,
 }: {
-  service: Service;
+  service: CatalogService;
   lang: Lang;
   onClick?: () => void;
   delay?: number;
   big?: boolean;
 }) {
-  const t = T[lang];
-  const free = service.priceFrom === 0;
+  const free = service.precio_desde === 0;
+  const titulo = tx(service.titulo_i18n, lang);
+  // En tiles grandes mostramos la parte tras "·"; en pequeños, el proveedor.
+  const tituloCorto = titulo.split("·").slice(-1)[0].trim();
+
+  let etiquetaPrecio: string;
+  if (service.precio_desde === null) {
+    etiquetaPrecio = ui(lang, "view").toUpperCase();
+  } else if (free) {
+    etiquetaPrecio = ui(lang, "free").toUpperCase();
+  } else {
+    etiquetaPrecio = `${ui(lang, "from").toUpperCase()} ${service.precio_desde} €`;
+  }
 
   return (
     <div
@@ -115,10 +128,10 @@ function ServiceTile({
         cursor: "pointer",
       }}
     >
-      {/* Brand color block */}
+      {/* Bloque de color de marca */}
       <div
         style={{
-          background: service.color,
+          background: service.proveedor.color_marca ?? "var(--ink)",
           padding: big ? "30px 24px 24px" : "20px 16px 16px",
           display: "flex",
           alignItems: "center",
@@ -127,10 +140,10 @@ function ServiceTile({
           flexShrink: 0,
         }}
       >
-        <BrandLogo id={service.brand} w={big ? 230 : 150} h={big ? 88 : 56} />
+        <BrandLogo id={service.proveedor.slug} w={big ? 230 : 150} h={big ? 88 : 56} />
       </div>
 
-      {/* Info block */}
+      {/* Bloque de información */}
       <div
         style={{
           padding: big ? "22px 24px 26px" : "14px 16px 18px",
@@ -148,7 +161,7 @@ function ServiceTile({
             color: "var(--muted)",
           }}
         >
-          {service.partner}
+          {service.proveedor.nombre}
         </div>
         <div
           style={{
@@ -159,9 +172,7 @@ function ServiceTile({
             letterSpacing: "-0.01em",
           }}
         >
-          {big
-            ? service.title[lang].split("·").slice(-1)[0].trim()
-            : service.short[lang]}
+          {big ? tituloCorto : service.proveedor.nombre}
         </div>
         {big && (
           <div
@@ -173,7 +184,7 @@ function ServiceTile({
               lineHeight: 1.4,
             }}
           >
-            {service.sub[lang]}
+            {tx(service.subtitulo_i18n, lang)}
           </div>
         )}
         <div style={{ flex: 1 }} />
@@ -197,9 +208,7 @@ function ServiceTile({
               whiteSpace: "nowrap",
             }}
           >
-            {free
-              ? t.free.toUpperCase()
-              : `${t.from.toUpperCase()} ${service.priceFrom} €`}
+            {etiquetaPrecio}
           </div>
           <div
             style={{
@@ -212,12 +221,7 @@ function ServiceTile({
               flexShrink: 0,
             }}
           >
-            <Icon
-              name="arrow-right"
-              size={big ? 18 : 15}
-              sw={2.4}
-              stroke="var(--accent)"
-            />
+            <Icon name="arrow-right" size={big ? 18 : 15} sw={2.4} stroke="var(--accent)" />
           </div>
         </div>
       </div>
@@ -225,12 +229,10 @@ function ServiceTile({
   );
 }
 
-export default function HomeScreen({ lang, onSelect }: HomeScreenProps) {
-  const t = T[lang];
-  const live = SERVICES.filter((s) => s.cat === "live");
-  const finance = SERVICES.filter((s) => s.cat === "finance");
+export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps) {
+  const categories = [...catalog.categories].sort((a, b) => a.orden - b.orden);
 
-  const now = new Date().toLocaleDateString(lang === "es" ? "es-ES" : "en-GB", {
+  const now = new Date().toLocaleDateString(INTL_LOCALES[lang] ?? lang, {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -247,7 +249,7 @@ export default function HomeScreen({ lang, onSelect }: HomeScreenProps) {
         background: "var(--bone)",
       }}
     >
-      {/* Header */}
+      {/* Cabecera */}
       <div style={{ padding: "36px 60px 24px" }}>
         <div
           className="fade-up"
@@ -274,7 +276,7 @@ export default function HomeScreen({ lang, onSelect }: HomeScreenProps) {
             animationDelay: "0.05s",
           }}
         >
-          {t.explore}
+          {ui(lang, "explore")}
         </h1>
         <div
           className="fade-up"
@@ -288,105 +290,78 @@ export default function HomeScreen({ lang, onSelect }: HomeScreenProps) {
             animationDelay: "0.1s",
           }}
         >
-          {t.exploreSub}
+          {ui(lang, "exploreSub")}
         </div>
       </div>
 
-      {/* Live Madrid */}
-      <CategoryHeader
-        label={CATEGORIES.live[lang]}
-        sub={CATEGORIES.live.sub[lang]}
-        index={1}
-        total={2}
-      />
-      <div
-        style={{
-          padding: "10px 60px",
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 18,
-        }}
-      >
-        {live.slice(0, 3).map((s, i) => (
-          <ServiceTile
-            key={s.id}
-            service={s}
-            lang={lang}
-            onClick={() => onSelect?.(s.id)}
-            delay={i * 0.06}
-            big
-          />
-        ))}
-      </div>
-      <div
-        style={{
-          padding: "16px 60px 0",
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 14,
-        }}
-      >
-        {live.slice(3).map((s, i) => (
-          <ServiceTile
-            key={s.id}
-            service={s}
-            lang={lang}
-            onClick={() => onSelect?.(s.id)}
-            delay={0.18 + i * 0.05}
-          />
-        ))}
-      </div>
+      {/* Una sección por categoría */}
+      {categories.map((cat, ci) => {
+        const servicios = catalog.services
+          .filter((s) => s.categoria === cat.slug)
+          .sort((a, b) => a.orden - b.orden);
 
-      {/* Servicios financieros */}
-      <CategoryHeader
-        label={CATEGORIES.finance[lang]}
-        sub={CATEGORIES.finance.sub[lang]}
-        index={2}
-        total={2}
-        accent
-      />
-      <div
-        style={{
-          padding: "10px 60px",
-          display: "grid",
-          gridTemplateColumns: "repeat(2, 1fr)",
-          gap: 18,
-        }}
-      >
-        {finance.slice(0, 2).map((s, i) => (
-          <ServiceTile
-            key={s.id}
-            service={s}
-            lang={lang}
-            onClick={() => onSelect?.(s.id)}
-            delay={0.28 + i * 0.06}
-            big
-          />
-        ))}
-      </div>
-      <div
-        style={{
-          padding: "16px 60px 80px",
-          display: "grid",
-          gridTemplateColumns: "repeat(2, 1fr)",
-          gap: 14,
-        }}
-      >
-        {finance.slice(2).map((s, i) => (
-          <ServiceTile
-            key={s.id}
-            service={s}
-            lang={lang}
-            onClick={() => onSelect?.(s.id)}
-            delay={0.38 + i * 0.05}
-          />
-        ))}
-      </div>
+        // Heurística que reproduce el diseño: más de 4 servicios -> 3 columnas,
+        // si no, 2. Los primeros (= nº de columnas) van como tiles grandes.
+        const columnas = servicios.length > 4 ? 3 : 2;
+        const grandes = servicios.slice(0, columnas);
+        const pequenos = servicios.slice(columnas);
 
-      {/* Bottom brand */}
+        return (
+          <div key={cat.slug}>
+            <CategoryHeader
+              label={tx(cat.nombre_i18n, lang)}
+              sub={tx(cat.subtitulo_i18n, lang)}
+              index={ci + 1}
+              total={categories.length}
+              accent={(ci + 1) % 2 === 0}
+            />
+            <div
+              style={{
+                padding: "10px 60px",
+                display: "grid",
+                gridTemplateColumns: `repeat(${columnas}, 1fr)`,
+                gap: 18,
+              }}
+            >
+              {grandes.map((s, i) => (
+                <ServiceTile
+                  key={s.slug}
+                  service={s}
+                  lang={lang}
+                  onClick={() => onSelect?.(s.slug)}
+                  delay={i * 0.06}
+                  big
+                />
+              ))}
+            </div>
+            {pequenos.length > 0 && (
+              <div
+                style={{
+                  padding: "16px 60px 0",
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${columnas}, 1fr)`,
+                  gap: 14,
+                }}
+              >
+                {pequenos.map((s, i) => (
+                  <ServiceTile
+                    key={s.slug}
+                    service={s}
+                    lang={lang}
+                    onClick={() => onSelect?.(s.slug)}
+                    delay={0.18 + i * 0.05}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Marca inferior */}
       <div
         style={{
-          padding: "24px 60px 36px",
+          padding: "40px 60px 36px",
           textAlign: "center",
           fontFamily: "var(--mono)",
           fontSize: 11,
@@ -395,7 +370,7 @@ export default function HomeScreen({ lang, onSelect }: HomeScreenProps) {
           color: "var(--muted)",
         }}
       >
-        powered by{" "}
+        {ui(lang, "poweredBy")}{" "}
         <span
           style={{
             fontWeight: 800,
@@ -404,7 +379,7 @@ export default function HomeScreen({ lang, onSelect }: HomeScreenProps) {
             color: "var(--ink)",
           }}
         >
-          PROSEGUR
+          {catalog.tenant.nombre.toUpperCase()}
         </span>
       </div>
     </div>

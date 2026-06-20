@@ -1,24 +1,28 @@
 "use client";
 
 import Icon from "./Icon";
-import { Lang } from "./data";
+import { Lang, ui } from "./data";
 
 interface StatusBarProps {
   lang: Lang;
   setLang: (l: Lang) => void;
+  locales: string[];
   voiceOn: boolean;
   onVoice: () => void;
   onHome: () => void;
-  location?: { name: string };
+  locationName: string;
+  tenantInitial: string;
 }
 
 export default function StatusBar({
   lang,
   setLang,
+  locales,
   voiceOn,
   onVoice,
   onHome,
-  location,
+  locationName,
+  tenantInitial,
 }: StatusBarProps) {
   return (
     <div
@@ -38,7 +42,7 @@ export default function StatusBar({
         borderBottom: "1px solid var(--line)",
       }}
     >
-      {/* Logo + location */}
+      {/* Logo + ubicación */}
       <div
         onClick={onHome}
         className="tap"
@@ -59,7 +63,7 @@ export default function StatusBar({
             flexShrink: 0,
           }}
         >
-          M
+          {tenantInitial}
         </div>
         <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
           <div
@@ -71,7 +75,7 @@ export default function StatusBar({
               color: "var(--muted)",
             }}
           >
-            {lang === "es" ? "Concierge digital" : "Digital concierge"}
+            {ui(lang, "concierge")}
           </div>
           <div
             style={{
@@ -87,14 +91,14 @@ export default function StatusBar({
             }}
           >
             <Icon name="pin" size={13} sw={2} />
-            Madrid · {location?.name ?? "Gran Vía"}
+            {locationName}
           </div>
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Controles */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {/* Voice */}
+        {/* Voz */}
         <button
           onClick={onVoice}
           className="tap"
@@ -115,10 +119,10 @@ export default function StatusBar({
           }}
         >
           <Icon name="mic" size={20} sw={2} />
-          {voiceOn && (lang === "es" ? "Escuchando" : "Listening")}
+          {voiceOn && ui(lang, "listening")}
         </button>
 
-        {/* Language toggle */}
+        {/* Selector de idioma (desde tenant.locales) */}
         <div
           style={{
             display: "flex",
@@ -127,7 +131,7 @@ export default function StatusBar({
             background: "var(--bone-2)",
           }}
         >
-          {(["es", "en"] as Lang[]).map((L) => (
+          {locales.map((L) => (
             <button
               key={L}
               onClick={() => setLang(L)}
@@ -151,7 +155,7 @@ export default function StatusBar({
           ))}
         </div>
 
-        {/* Accessibility */}
+        {/* Accesibilidad */}
         <button
           className="tap"
           style={{

@@ -1,5 +1,24 @@
 # Proyecto: Kioma Labs — Plataforma SaaS de kioskos (Concierge digital)
 
+## EXCELENCIA DESDE EL MINUTO 1 (principio rector, por encima de todo)
+- Esto NO es un MVP ni un prototipo: es la base de un mega proyecto a largo plazo
+  que debe funcionar perfectamente, escalar y tener calidad y rendimiento
+  inmejorables. Cada decisión se toma pensando en ese futuro.
+- PRIORIZA SIEMPRE calidad, robustez, seguridad, rendimiento y mantenibilidad
+  por encima de la rapidez de entrega. NO tomes atajos. El usuario acepta
+  explícitamente tardar más a cambio de hacerlo bien desde el principio.
+- Haz las cosas de la forma correcta y estándar de la industria, no la más rápida:
+  tipado estricto, manejo de errores explícito, validación de datos, nombres
+  claros, separación de responsabilidades, código testeable y documentado.
+- Piensa en escalabilidad desde el diseño: muchos tenants, muchos kioscos, mucho
+  catálogo, mucho tráfico. Evita cuellos de botella, consultas N+1 y acoplamientos.
+- Seguridad por defecto: mínimo privilegio, validación en servidor, RLS, secretos
+  fuera del código. Ante la duda, la opción más segura.
+- Previene problemas antes de que ocurran: contempla casos límite, estados de
+  error y de carga, datos vacíos o malformados. Nada de "ya lo arreglamos luego".
+- Si una solución rápida compromete la calidad futura, AVÍSAME y propón la
+  correcta aunque lleve más trabajo. La deuda técnica se evita, no se acumula.
+
 ## Qué estamos construyendo
 Una plataforma SaaS para kioscos táctiles verticales (pantallas Windows 21,5"
 en modo kiosko bloqueado, navegador Edge). Kioscos en hoteles, aeropuertos,
