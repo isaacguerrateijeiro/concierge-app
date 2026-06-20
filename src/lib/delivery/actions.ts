@@ -1,9 +1,10 @@
 "use server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchRecibo } from "@/lib/recibo";
 import { leerConfigEntrega } from "./config";
 import { adaptadorDe } from "./registry";
-import { renderComprobante } from "./render";
+import { renderComprobante, type DatosComprobante, type ProveedorMsg } from "./render";
 import { formatearImporte } from "@/components/kiosk/format";
 import {
   enviarComprobanteSchema,
@@ -74,15 +75,56 @@ export async function enviarComprobante(
     return { ok: false, error: "Se alcanzó el máximo de envíos para este pedido." };
   }
 
-  // Renderizar el mensaje (enlace al recibo público + resumen).
+  // Renderizar el mensaje con el detalle completo (mismo origen de datos que la
+  // página pública: la RPC get_recibo). Si por algún motivo no hay recibo,
+  // caemos a un resumen mínimo.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const lang = order.idioma ?? "es";
-  const comprobante = renderComprobante({
-    tenantNombre: await nombreTenant(supabase, order.tenant_id),
-    url: `${appUrl}/r/${reciboToken}`,
-    totalFormateado: formatearImporte(Number(order.importe_total), order.moneda, lang),
+  const url = `${appUrl}/r/${reciboToken}`;
+  const recibo = await fetchRecibo(reciboToken);
+
+  const fmt = (n: number) => formatearImporte(n, order.moneda, lang);
+  const tenantNombre = recibo?.tenant.nombre ?? (await nombreTenant(supabase, order.tenant_id));
+
+  const proveedores: ProveedorMsg[] = (recibo?.proveedores ?? []).map((p) => ({
+    emisor: p.emisor.razon_social || p.nombre,
+    nif: p.emisor.nif ?? null,
+    facturaRef: p.factura?.referencia ?? null,
+    lineas: p.items.map((it) => ({
+      titulo: it.titulo,
+      cantidad: it.cantidad,
+      importeFmt: fmt(it.importe),
+      ivaTipo: it.iva_tipo,
+    })),
+    baseFmt: p.factura ? fmt(p.factura.base_imponible) : null,
+    desglose: (p.factura?.desglose_iva ?? []).map((d) => ({
+      tipo: d.tipo,
+      cuotaFmt: fmt(d.cuota),
+    })),
+    totalFmt: p.factura ? fmt(p.factura.total) : null,
+    soporteEmail: p.soporte.email ?? null,
+    soporteTelefono: p.soporte.telefono ?? null,
+    cancelacion: localizar(p.cancelacion, lang),
+    terminosUrl: p.terminos_url ?? null,
+    privacidadUrl: p.privacidad_url ?? null,
+  }));
+
+  // Reply-To: soporte del tenant o, en su defecto, del primer proveedor.
+  const replyTo =
+    (recibo?.legal?.soporte_email as string | undefined) ??
+    proveedores.find((p) => p.soporteEmail)?.soporteEmail ??
+    null;
+
+  const datos: DatosComprobante = {
+    tenantNombre,
+    url,
+    referencia: recibo?.referencia ?? null,
+    totalFormateado: fmt(Number(order.importe_total)),
     lang,
-  });
+    proveedores,
+    replyTo,
+  };
+  const comprobante = renderComprobante(datos);
 
   // Registrar la entrega como pending (PII de destino solo aquí).
   const { data: delivery, error: errDel } = await supabase
@@ -109,6 +151,16 @@ export async function enviarComprobante(
     return { ok: false, error: resultado.error ?? "No se pudo enviar el comprobante." };
   }
   return { ok: true };
+}
+
+// Resuelve un texto {es,en} o cadena simple por idioma.
+function localizar(
+  val: string | Record<string, string> | null | undefined,
+  lang: string
+): string | null {
+  if (!val) return null;
+  if (typeof val === "string") return val;
+  return val[lang] ?? val.es ?? val.en ?? null;
 }
 
 async function nombreTenant(

@@ -27,3 +27,13 @@ export function generarCodigo(longitudBloque = 4, bloques = 2): string {
 export function generarToken(bytes = 24): string {
   return randomBytes(bytes).toString("base64url");
 }
+
+// Referencia corta del pedido (8 chars legibles, sin guion) para citar en
+// SMS/soporte, p. ej. "ABCD2345".
+export function generarReferencia(longitud = 8): string {
+  let r = "";
+  for (let i = 0; i < longitud; i++) {
+    r += ALFABETO[randomInt(ALFABETO.length)];
+  }
+  return r;
+}

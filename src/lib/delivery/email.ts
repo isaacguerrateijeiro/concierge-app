@@ -25,6 +25,19 @@ export const emailAdapter: AdaptadorCanal = {
       ? `${remitente.email_nombre} <${remitente.email_from}>`
       : remitente.email_from;
 
+    // Reply-To al buzón real de soporte (nunca noreply@): si el cliente
+    // responde, llega a atención al cliente del proveedor/tenant.
+    const payload: Record<string, unknown> = {
+      from,
+      to: [destino],
+      subject: comprobante.asunto,
+      html: comprobante.html,
+      text: comprobante.textoPlano,
+    };
+    if (comprobante.replyTo) {
+      payload.reply_to = comprobante.replyTo;
+    }
+
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -32,13 +45,7 @@ export const emailAdapter: AdaptadorCanal = {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          from,
-          to: [destino],
-          subject: comprobante.asunto,
-          html: comprobante.html,
-          text: comprobante.textoPlano,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const detalle = await res.text();

@@ -248,12 +248,79 @@ export type Database = {
           },
         ]
       }
+      order_invoices: {
+        Row: {
+          anio: number
+          base_imponible: number
+          created_at: string
+          cuota_iva: number
+          desglose_iva: Json
+          emisor: Json
+          fecha: string
+          id: string
+          moneda: string
+          numero: number
+          order_id: string
+          provider_id: string
+          serie: string
+          total: number
+        }
+        Insert: {
+          anio: number
+          base_imponible: number
+          created_at?: string
+          cuota_iva: number
+          desglose_iva?: Json
+          emisor: Json
+          fecha?: string
+          id?: string
+          moneda?: string
+          numero: number
+          order_id: string
+          provider_id: string
+          serie: string
+          total: number
+        }
+        Update: {
+          anio?: number
+          base_imponible?: number
+          created_at?: string
+          cuota_iva?: number
+          desglose_iva?: Json
+          emisor?: Json
+          fecha?: string
+          id?: string
+          moneda?: string
+          numero?: number
+          order_id?: string
+          provider_id?: string
+          serie?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_invoices_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           cantidad: number
           created_at: string
           id: string
           importe: number
+          iva_tipo: number
           order_id: string
           precio_unitario: number
           service_id: string | null
@@ -265,6 +332,7 @@ export type Database = {
           created_at?: string
           id?: string
           importe: number
+          iva_tipo?: number
           order_id: string
           precio_unitario: number
           service_id?: string | null
@@ -276,6 +344,7 @@ export type Database = {
           created_at?: string
           id?: string
           importe?: number
+          iva_tipo?: number
           order_id?: string
           precio_unitario?: number
           service_id?: string | null
@@ -428,6 +497,7 @@ export type Database = {
           moneda: string
           paid_at: string | null
           recibo_token: string | null
+          referencia: string | null
           stripe_checkout_session_id: string | null
           stripe_payment_intent_id: string | null
           tenant_id: string
@@ -443,6 +513,7 @@ export type Database = {
           moneda?: string
           paid_at?: string | null
           recibo_token?: string | null
+          referencia?: string | null
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
           tenant_id: string
@@ -458,6 +529,7 @@ export type Database = {
           moneda?: string
           paid_at?: string | null
           recibo_token?: string | null
+          referencia?: string | null
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
           tenant_id?: string
@@ -480,11 +552,44 @@ export type Database = {
           },
         ]
       }
+      provider_invoice_counters: {
+        Row: {
+          anio: number
+          provider_id: string
+          serie: string
+          ultimo_numero: number
+          updated_at: string
+        }
+        Insert: {
+          anio: number
+          provider_id: string
+          serie: string
+          ultimo_numero?: number
+          updated_at?: string
+        }
+        Update: {
+          anio?: number
+          provider_id?: string
+          serie?: string
+          ultimo_numero?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_invoice_counters_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       providers: {
         Row: {
           activo: boolean
           color_marca: string | null
           created_at: string
+          fiscal_config: Json
           id: string
           logo: string | null
           nombre: string
@@ -499,6 +604,7 @@ export type Database = {
           activo?: boolean
           color_marca?: string | null
           created_at?: string
+          fiscal_config?: Json
           id?: string
           logo?: string | null
           nombre: string
@@ -513,6 +619,7 @@ export type Database = {
           activo?: boolean
           color_marca?: string | null
           created_at?: string
+          fiscal_config?: Json
           id?: string
           logo?: string | null
           nombre?: string
@@ -540,6 +647,7 @@ export type Database = {
           created_at: string
           icono: string | null
           id: string
+          iva_tipo: number | null
           moneda: string
           orden: number
           precio_desde: number | null
@@ -558,6 +666,7 @@ export type Database = {
           created_at?: string
           icono?: string | null
           id?: string
+          iva_tipo?: number | null
           moneda?: string
           orden?: number
           precio_desde?: number | null
@@ -576,6 +685,7 @@ export type Database = {
           created_at?: string
           icono?: string | null
           id?: string
+          iva_tipo?: number | null
           moneda?: string
           orden?: number
           precio_desde?: number | null
@@ -619,6 +729,7 @@ export type Database = {
           created_at: string
           entrega_config: Json
           id: string
+          legal_config: Json
           locale_default: string
           locales: string[]
           nombre: string
@@ -632,6 +743,7 @@ export type Database = {
           created_at?: string
           entrega_config?: Json
           id?: string
+          legal_config?: Json
           locale_default?: string
           locales?: string[]
           nombre: string
@@ -645,6 +757,7 @@ export type Database = {
           created_at?: string
           entrega_config?: Json
           id?: string
+          legal_config?: Json
           locale_default?: string
           locales?: string[]
           nombre?: string
@@ -662,6 +775,10 @@ export type Database = {
       get_catalog: { Args: { p_tenant_slug: string }; Returns: Json }
       get_order_status: { Args: { p_session_id: string }; Returns: Json }
       get_recibo: { Args: { p_token: string }; Returns: Json }
+      siguiente_numero_factura: {
+        Args: { p_anio: number; p_provider_id: string; p_serie: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

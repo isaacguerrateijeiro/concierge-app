@@ -11,6 +11,7 @@ import {
   type TipoCalculo,
 } from "./commissions";
 import { cartSchema, type Cart } from "./cart.schema";
+import { generarReferencia } from "@/lib/vouchers/codigo";
 
 // Importe mínimo cobrable por Stripe (50 céntimos). Por debajo no se puede
 // crear una sesión de pago.
@@ -43,7 +44,7 @@ export async function crearCheckoutParaCarrito(
   // 1) Tenant
   const { data: tenant, error: errTenant } = await supabase
     .from("tenants")
-    .select("id, locale_default")
+    .select("id, locale_default, legal_config")
     .eq("slug", tenantSlug)
     .eq("activo", true)
     .single();
@@ -51,12 +52,16 @@ export async function crearCheckoutParaCarrito(
     throw new Error(`Tenant '${tenantSlug}' no encontrado.`);
   }
   const idioma = idiomaInput ?? tenant.locale_default;
+  // IVA por defecto del tenant (respaldo cuando el servicio no define iva_tipo).
+  const legalTenant = (tenant.legal_config ?? {}) as Record<string, unknown>;
+  const ivaDefault =
+    typeof legalTenant.iva_default === "number" ? legalTenant.iva_default : 21;
 
   // 2) Servicios del carrito (deben ser del tenant, activos e integrados)
   const slugs = cart.items.map((i) => i.service_slug);
   const { data: servicios, error: errServ } = await supabase
     .from("services")
-    .select("id, slug, titulo_i18n, precio_desde, moneda, tipo_pago, provider_id, activo")
+    .select("id, slug, titulo_i18n, precio_desde, moneda, tipo_pago, provider_id, activo, iva_tipo")
     .eq("tenant_id", tenant.id)
     .in("slug", slugs);
   if (errServ) {
@@ -123,6 +128,7 @@ export async function crearCheckoutParaCarrito(
     precio_unitario: number;
     cantidad: number;
     importe: number;
+    iva_tipo: number;
     comisiones: ReturnType<typeof calcularComisionesLinea>;
   };
 
@@ -130,6 +136,7 @@ export async function crearCheckoutParaCarrito(
     const s = porSlug.get(item.service_slug)!;
     const precio_unitario = Number(s.precio_desde);
     const importe = redondear2(precio_unitario * item.cantidad);
+    const iva_tipo = s.iva_tipo !== null ? Number(s.iva_tipo) : ivaDefault;
     const reglasLinea: ReglaComision[] = (reglas ?? [])
       .filter((r) => r.provider_id === s.provider_id || r.service_id === s.id)
       .map((r) => ({
@@ -145,6 +152,7 @@ export async function crearCheckoutParaCarrito(
       precio_unitario,
       cantidad: item.cantidad,
       importe,
+      iva_tipo,
       comisiones: calcularComisionesLinea({
         precioUnitario: precio_unitario,
         cantidad: item.cantidad,
@@ -171,6 +179,7 @@ export async function crearCheckoutParaCarrito(
       moneda,
       importe_total: importeTotal,
       idioma,
+      referencia: generarReferencia(),
     })
     .select("id")
     .single();
@@ -189,6 +198,7 @@ export async function crearCheckoutParaCarrito(
         precio_unitario: l.precio_unitario,
         cantidad: l.cantidad,
         importe: l.importe,
+        iva_tipo: l.iva_tipo,
       })
       .select("id")
       .single();

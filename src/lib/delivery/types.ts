@@ -16,6 +16,7 @@ export interface Comprobante {
   textoPlano: string; // cuerpo en texto (sms/whatsapp y fallback de email)
   html: string; // cuerpo en HTML (email)
   tenantNombre: string;
+  replyTo?: string | null; // buzón real de soporte (email): nunca noreply@
 }
 
 export interface ResultadoEnvio {
