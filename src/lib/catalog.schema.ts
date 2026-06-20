@@ -14,6 +14,21 @@ import { z } from "zod";
 // Un texto traducible: { es: "...", en: "...", ... }. Ampliable a más idiomas.
 export const localizedSchema = z.record(z.string(), z.string());
 
+// Canales de entrega posibles para el comprobante. Fuente única de verdad.
+export const canalEntregaSchema = z.enum(["email", "sms", "whatsapp", "print"]);
+export type CanalEntrega = z.infer<typeof canalEntregaSchema>;
+
+// Parte PÚBLICA de la config de entrega que expone get_catalog al kiosko:
+// qué canales están habilitados y el texto de consentimiento por idioma.
+// El remitente y demás identidades NO se exponen aquí (solo servidor).
+export const entregaPublicaSchema = z
+  .object({
+    canales: z.array(canalEntregaSchema).default([]),
+    consentimiento: localizedSchema.default({}),
+  })
+  .default({ canales: [], consentimiento: {} });
+export type EntregaPublica = z.infer<typeof entregaPublicaSchema>;
+
 export const catalogTenantSchema = z.object({
   slug: z.string(),
   nombre: z.string(),
@@ -41,6 +56,8 @@ export const catalogTenantSchema = z.object({
   // Micro-textos de interfaz configurables: { idioma: { clave: texto } }.
   // Por defecto {}: el frontal completa con sus textos de respaldo.
   ui: z.record(z.string(), z.record(z.string(), z.string())).default({}),
+  // Config pública de entrega del comprobante (canales + consentimiento).
+  entrega: entregaPublicaSchema,
 });
 
 export const catalogLocationSchema = z.object({

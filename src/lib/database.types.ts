@@ -1,5 +1,3 @@
-// Tipos generados automáticamente desde el esquema de Supabase.
-// NO editar a mano. Regenerar con la CLI de Supabase / MCP cuando cambie el esquema.
 export type Json =
   | string
   | number
@@ -206,6 +204,50 @@ export type Database = {
           },
         ]
       }
+      order_deliveries: {
+        Row: {
+          canal: string
+          created_at: string
+          destino: string | null
+          error: string | null
+          estado: string
+          id: string
+          order_id: string
+          proveedor_msg_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          canal: string
+          created_at?: string
+          destino?: string | null
+          error?: string | null
+          estado?: string
+          id?: string
+          order_id: string
+          proveedor_msg_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          canal?: string
+          created_at?: string
+          destino?: string | null
+          error?: string | null
+          estado?: string
+          id?: string
+          order_id?: string
+          proveedor_msg_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_deliveries_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           cantidad: number
@@ -314,6 +356,67 @@ export type Database = {
           },
         ]
       }
+      order_vouchers: {
+        Row: {
+          codigo: string
+          created_at: string
+          estado: string
+          id: string
+          order_id: string
+          order_item_id: string
+          provider_id: string | null
+          redeemed_at: string | null
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          codigo: string
+          created_at?: string
+          estado?: string
+          id?: string
+          order_id: string
+          order_item_id: string
+          provider_id?: string | null
+          redeemed_at?: string | null
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          codigo?: string
+          created_at?: string
+          estado?: string
+          id?: string
+          order_id?: string
+          order_item_id?: string
+          provider_id?: string | null
+          redeemed_at?: string | null
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_vouchers_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_vouchers_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: true
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_vouchers_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           created_at: string
@@ -324,6 +427,7 @@ export type Database = {
           location_id: string | null
           moneda: string
           paid_at: string | null
+          recibo_token: string | null
           stripe_checkout_session_id: string | null
           stripe_payment_intent_id: string | null
           tenant_id: string
@@ -338,6 +442,7 @@ export type Database = {
           location_id?: string | null
           moneda?: string
           paid_at?: string | null
+          recibo_token?: string | null
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
           tenant_id: string
@@ -352,6 +457,7 @@ export type Database = {
           location_id?: string | null
           moneda?: string
           paid_at?: string | null
+          recibo_token?: string | null
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
           tenant_id?: string
@@ -511,6 +617,7 @@ export type Database = {
           activo: boolean
           branding: Json
           created_at: string
+          entrega_config: Json
           id: string
           locale_default: string
           locales: string[]
@@ -523,6 +630,7 @@ export type Database = {
           activo?: boolean
           branding?: Json
           created_at?: string
+          entrega_config?: Json
           id?: string
           locale_default?: string
           locales?: string[]
@@ -535,6 +643,7 @@ export type Database = {
           activo?: boolean
           branding?: Json
           created_at?: string
+          entrega_config?: Json
           id?: string
           locale_default?: string
           locales?: string[]
@@ -552,6 +661,7 @@ export type Database = {
     Functions: {
       get_catalog: { Args: { p_tenant_slug: string }; Returns: Json }
       get_order_status: { Args: { p_session_id: string }; Returns: Json }
+      get_recibo: { Args: { p_token: string }; Returns: Json }
     }
     Enums: {
       [_ in never]: never

@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { crearTransferenciasPedido } from "@/lib/payments/transfers";
+import { generarVouchersPedido } from "@/lib/vouchers/vouchers";
 import { leerEstadoCuenta } from "@/lib/stripe/connect";
 
 // El webhook es la FUENTE DE VERDAD del resultado del pago: Stripe nos avisa
@@ -47,8 +48,10 @@ export async function POST(req: Request) {
       // Solo marcamos pagado si el pago realmente está cobrado.
       if (session.payment_status === "paid" || session.payment_status === "no_payment_required") {
         const orderId = await marcarPedido(supabase, session.id, "paid", session.payment_intent);
-        // Tras el pago, repartir a cada proveedor su parte (idempotente).
+        // Tras el pago: generar el comprobante (vouchers + recibo) y repartir a
+        // cada proveedor su parte. Ambos son idempotentes.
         if (orderId) {
+          await generarVouchersPedido(orderId);
           await crearTransferenciasPedido(orderId);
         }
       }

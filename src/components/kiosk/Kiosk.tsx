@@ -200,7 +200,12 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
           )}
 
           {screen === "confirm" && sessionId && (
-            <ConfirmationScreen lang={lang} sessionId={sessionId} onReset={resetKiosk} />
+            <ConfirmationScreen
+              lang={lang}
+              sessionId={sessionId}
+              entrega={tenant.entrega}
+              onReset={resetKiosk}
+            />
           )}
         </UiTextProvider>
       </div>

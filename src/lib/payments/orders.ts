@@ -25,6 +25,7 @@ export interface EstadoPedido {
   estado: "pending" | "paid" | "failed" | "expired";
   importe_total: number;
   moneda: string;
+  recibo_token: string | null;
 }
 
 // Crea el pedido y la sesión de pago de Stripe (Embedded Checkout) para un
@@ -262,5 +263,7 @@ export async function obtenerEstadoPedido(
     estado: obj.estado as EstadoPedido["estado"],
     importe_total: Number(obj.importe_total ?? 0),
     moneda: String(obj.moneda ?? "EUR"),
+    recibo_token:
+      typeof obj.recibo_token === "string" ? obj.recibo_token : null,
   };
 }
