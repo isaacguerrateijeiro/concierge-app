@@ -1,51 +1,83 @@
-# Proyecto: Kioma Labs — Plataforma de kioskos (Concierge digital)
+# Proyecto: Kioma Labs — Plataforma SaaS de kioskos (Concierge digital)
 
 ## Qué estamos construyendo
-Una plataforma SaaS para kioscos táctiles verticales (pantallas Windows de 21,5"
-en modo kiosko bloqueado, navegador Edge). El primer cliente es Prosegur, con
-kioscos en la Gran Vía de Madrid. El kiosko es un "concierge digital": un
+Una plataforma SaaS para kioscos táctiles verticales (pantallas Windows 21,5"
+en modo kiosko bloqueado, navegador Edge). Kioscos en hoteles, aeropuertos,
+estaciones y zonas turísticas. El kiosko es un "concierge digital": un
 marketplace donde un turista compra varios servicios turísticos (free tours,
 traslados, entradas de fútbol...) y los paga TODOS en una sola operación.
 
-A futuro será multi-cliente (multi-tenant) y configurable desde un panel de
-administración, pero NO construimos eso todavía (ver "Orden de trabajo").
+## ESTO ES UN PRODUCTO SaaS MULTI-TENANT (crítico para toda decisión)
+- Es un producto que se venderá a MÚLTIPLES clientes (operadores de kioscos).
+  El primer cliente es Prosegur, pero NUNCA asumas que solo existe Prosegur.
+- Todo lo que un cliente podría querer personalizar es CONFIGURACIÓN (datos),
+  NUNCA código fijo: los servicios, sus precios, categorías, textos, idiomas,
+  colores y logos del frontal. Todo eso son DATOS que vienen de la base de datos.
+- PROHIBIDO hardcodear servicios, textos o cualquier contenido en el frontal.
+  El frontal SIEMPRE lee de datos externos, aunque hoy esos datos sean pocos.
+- Multi-tenant: la base de datos debe separar los datos por cliente (tenant)
+  desde el diseño, aunque de momento solo carguemos los datos de Prosegur.
+
+## Modelo de negocio y reparto de dinero (3 beneficiarios por venta)
+Cada venta de un servicio integrado se reparte entre TRES partes:
+1. El PROVEEDOR del servicio (Bolt, Julia Travel, etc.): su precio.
+2. KIOMA LABS (nosotros, la plataforma): nuestra comisión de plataforma.
+3. PROSEGUR (el operador/canal que coloca y comercializa el kiosko): su comisión.
+Además, el coste de Stripe lo absorbemos NOSOTROS (Kioma).
+- Pagos vía Stripe Connect, modelo destination charges.
+- El modelo de datos debe contemplar los 3 beneficiarios desde el principio.
+- IMPORTANTE: en el MVP, la fontanería de Stripe opera en modo simple (solo
+  proveedor + Kioma como partes en Stripe; la comisión de Prosegur se liquida
+  aparte como acuerdo B2B). Pero los DATOS ya modelan las 3 comisiones, para
+  poder migrar a 3 vías reales en el futuro sin rehacer nada.
+- Hay también servicios "DERIVADOS" (Oro Prosegur, ChangeGroup, RACE) que NO se
+  cobran en plataforma: el kiosko redirige al tercero. En esos, la comisión la
+  factura Kioma al proveedor (CPA, rev-share o fija). Modela esto también.
 
 ## Stack técnico (no cambiar sin avisarme)
 - Framework: Next.js (App Router) con React
 - Lenguaje: TypeScript estricto
 - Estilos: Tailwind CSS
-- Backend + Auth + BBDD: Supabase (PostgreSQL)
-- Pagos: Stripe + Stripe Connect (modelo destination charges)
+- Backend + Auth + BBDD: Supabase (PostgreSQL). El frontal lee de Supabase
+  desde el principio, NO de datos escritos en el código.
+- Pagos: Stripe + Stripe Connect (destination charges)
 - Hosting: Vercel
 
-## Orden de trabajo (MUY IMPORTANTE)
-Construimos por fases. NO te adelantes a fases futuras aunque parezca lógico.
-1. FASE ACTUAL: el frontal del kiosko que vende (empezando por la pantalla de inicio).
-2. Después: pago real con Stripe de los servicios integrados.
-3. Después: pagos divididos (Connect) y panel de administración.
-Si una tarea parece requerir algo de una fase posterior, AVÍSAME en vez de
-construirlo por tu cuenta.
+## Orden de trabajo POR FASES (MUY IMPORTANTE — no te adelantes)
+Pensamos configurable desde el día uno, pero NO construimos el panel todavía.
+1. FASE 0 (AHORA): arquitectura de datos en Supabase (definir cómo se modelan
+   servicios, categorías, comisiones, tenants), con los datos de Prosegur
+   cargados a mano. SIN panel de administración aún.
+2. FASE 1: el frontal del kiosko que vende, leyendo de Supabase. Empezando por
+   la pantalla de inicio.
+3. FASE 2: pago real con Stripe de los servicios integrados.
+4. FASE 3: pagos divididos (Connect) y EL PANEL DE ADMINISTRACIÓN que edita
+   toda la configuración. Multi-tenant completo.
+- DISTINCIÓN CLAVE: "pensar configurable" (obligatorio ya) NO es lo mismo que
+  "construir el panel" (Fase 3). El frontal lee de datos configurables desde ya,
+  pero la herramienta para EDITAR esos datos llega en Fase 3.
+- Si una tarea parece requerir algo de una fase posterior, AVÍSAME, no lo
+  construyas por tu cuenta.
 
 ## Cómo quiero que trabajes conmigo
 - Soy principiante: sé claro y explícame qué haces y por qué en cada paso.
-- Trabaja en pasos pequeños y revisables. Una cosa cada vez, no diez.
+- Trabaja en pasos pequeños y revisables. Una cosa cada vez.
 - Antes de crear muchos archivos o cambios grandes, explícame el plan y espera mi OK.
 - Cuando termines un avance que funcione, recuérdame hacer commit.
-- Si algo se puede hacer de varias formas, propón la más estándar y mantenible,
-  no la más "lista" ni la más nueva.
-- Usa nombres de variables y comentarios en español cuando ayuden a que yo entienda.
+- Propón siempre la solución más estándar y mantenible, no la más "lista".
+- Usa nombres y comentarios en español cuando ayuden a que yo entienda.
 
 ## Diseño visual
-En la carpeta /referencias tengo prototipos HTML del diseño que quiero
-(kiosko-frontal.html y panel-admin.html). Son mi GUÍA VISUAL EXACTA: respétalos
-en colores, tipografías y disposición. Estética editorial inspirada en Madrid:
-papel hueso (#F4F1EA), tinta casi negra (#16140F), tipografías serif expresiva
-(DM Serif Display) + sans limpia (Inter). Formato VERTICAL (retrato), objetivos
-táctiles grandes, bilingüe ES/EN.
+En /referencias tengo prototipos HTML (claude.html y panel.html).
+Son mi GUÍA VISUAL EXACTA: respétalos en colores, tipografías y disposición.
+Estética editorial Madrid: papel hueso (#F4F1EA), tinta casi negra (#16140F),
+DM Serif Display + Inter. Formato VERTICAL, objetivos táctiles grandes,
+bilingüe ES/EN (y el idioma también debe ser ampliable, no fijo a 2).
 
 ## Reglas de seguridad (críticas)
-- Las claves secretas (Stripe, Supabase) van SIEMPRE en variables de entorno
-  (.env.local), NUNCA en el código ni subidas a Git. Avísame si alguna vez
-  detectas una clave en sitio equivocado.
-- El kiosko es público y sin vigilancia: piensa en ese contexto (sin datos
-  sensibles persistentes en pantalla, sesiones que se reinician, etc.).
+- Claves secretas (Stripe, Supabase) SIEMPRE en variables de entorno (.env.local),
+  NUNCA en código ni en Git. Avísame si detectas una clave en sitio equivocado.
+- Multi-tenant: los datos de un cliente NUNCA deben poder filtrarse a otro. Usa
+  las protecciones de Supabase (Row Level Security) para aislar por tenant.
+- El kiosko es público y sin vigilancia: sin datos sensibles persistentes en
+  pantalla, sesiones que se reinician solas.
