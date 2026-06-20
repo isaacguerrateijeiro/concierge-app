@@ -168,6 +168,155 @@ export type Database = {
           },
         ]
       }
+      order_commissions: {
+        Row: {
+          beneficiario: string
+          created_at: string
+          id: string
+          importe: number
+          order_item_id: string
+          tipo_calculo: string | null
+          valor: number | null
+        }
+        Insert: {
+          beneficiario: string
+          created_at?: string
+          id?: string
+          importe: number
+          order_item_id: string
+          tipo_calculo?: string | null
+          valor?: number | null
+        }
+        Update: {
+          beneficiario?: string
+          created_at?: string
+          id?: string
+          importe?: number
+          order_item_id?: string
+          tipo_calculo?: string | null
+          valor?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_commissions_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_items: {
+        Row: {
+          cantidad: number
+          created_at: string
+          id: string
+          importe: number
+          order_id: string
+          precio_unitario: number
+          service_id: string | null
+          service_slug: string
+          titulo: string
+        }
+        Insert: {
+          cantidad: number
+          created_at?: string
+          id?: string
+          importe: number
+          order_id: string
+          precio_unitario: number
+          service_id?: string | null
+          service_slug: string
+          titulo: string
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string
+          id?: string
+          importe?: number
+          order_id?: string
+          precio_unitario?: number
+          service_id?: string | null
+          service_slug?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          created_at: string
+          estado: string
+          id: string
+          idioma: string | null
+          importe_total: number
+          location_id: string | null
+          moneda: string
+          paid_at: string | null
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          estado?: string
+          id?: string
+          idioma?: string | null
+          importe_total: number
+          location_id?: string | null
+          moneda?: string
+          paid_at?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          estado?: string
+          id?: string
+          idioma?: string | null
+          importe_total?: number
+          location_id?: string | null
+          moneda?: string
+          paid_at?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       providers: {
         Row: {
           activo: boolean
@@ -336,6 +485,7 @@ export type Database = {
     }
     Functions: {
       get_catalog: { Args: { p_tenant_slug: string }; Returns: Json }
+      get_order_status: { Args: { p_session_id: string }; Returns: Json }
     }
     Enums: {
       [_ in never]: never

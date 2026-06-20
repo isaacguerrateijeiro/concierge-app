@@ -9,7 +9,7 @@ import Icon from "./Icon";
 interface HomeScreenProps {
   catalog: Catalog;
   lang: Lang;
-  onSelect?: (slug: string) => void;
+  onSelect?: (service: CatalogService) => void;
 }
 
 function CategoryHeader({
@@ -331,7 +331,7 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
                   key={s.slug}
                   service={s}
                   lang={lang}
-                  onClick={() => onSelect?.(s.slug)}
+                  onClick={() => onSelect?.(s)}
                   delay={i * 0.06}
                   big
                 />
@@ -351,7 +351,7 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
                     key={s.slug}
                     service={s}
                     lang={lang}
-                    onClick={() => onSelect?.(s.slug)}
+                    onClick={() => onSelect?.(s)}
                     delay={0.18 + i * 0.05}
                   />
                 ))}

@@ -6,12 +6,17 @@ on:
   pull_request:
     branches: [main]
 
-# Variables públicas de Supabase (claves NEXT_PUBLIC_*, seguras de exponer).
+# Variables públicas (claves NEXT_PUBLIC_*, seguras de exponer).
 # Configúralas en GitHub: Settings → Secrets and variables → Actions → Variables.
+# Las claves SECRETAS de Stripe (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET) y de
+# Supabase (SUPABASE_SERVICE_ROLE_KEY) NO se necesitan en CI: el build crea el
+# cliente de Stripe de forma perezosa y el E2E no entra en el pago. Cuando haya
+# pruebas que cobren de verdad, añádelas como Secrets (nunca como Variables).
 env:
   NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
   NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
   NEXT_PUBLIC_TENANT_SLUG: ${{ vars.NEXT_PUBLIC_TENANT_SLUG }}
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
 
 jobs:
   quality:
