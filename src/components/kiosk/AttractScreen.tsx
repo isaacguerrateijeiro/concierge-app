@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Lang, ui } from "./data";
+import { Lang } from "./data";
+import { useUiText } from "./uiText";
 import Icon from "./Icon";
 
 // Las 3 escenas (fondos animados) son parte de la estética del frontal.
@@ -37,6 +38,8 @@ export default function AttractScreen({
   locationName,
   partners,
 }: AttractScreenProps) {
+  const t = useUiText();
+
   // idx controla qué escena se muestra (0, 1 o 2)
   const [idx, setIdx] = useState(0);
 
@@ -165,7 +168,7 @@ export default function AttractScreen({
             animationDelay: "0.1s",
           }}
         >
-          {ui(lang, "concierge")}
+          {t(lang, "concierge")}
         </div>
 
         {/* Saludo grande */}
@@ -178,7 +181,7 @@ export default function AttractScreen({
             whiteSpace: "nowrap",
           }}
         >
-          {ui(lang, "hello")}
+          {t(lang, "hello")}
         </div>
 
         {/* Subtítulo rotante — cambia con cada escena */}
@@ -213,7 +216,7 @@ export default function AttractScreen({
             animationDelay: "0.2s",
           }}
         >
-          {ui(lang, "attractDesc")}
+          {t(lang, "attractDesc")}
         </div>
 
         {/* Pastillas de socios (proveedores del catálogo) */}
@@ -271,7 +274,7 @@ export default function AttractScreen({
             animation: "pulseRing 2.4s ease-out infinite, bounce 2.4s ease-in-out infinite",
           }}
         >
-          {ui(lang, "tap")}
+          {t(lang, "tap")}
           <Icon name="arrow-right" size={36} sw={2.4} stroke="var(--ink)" />
         </button>
       </div>

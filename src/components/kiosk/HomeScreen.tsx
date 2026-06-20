@@ -1,7 +1,8 @@
 "use client";
 
-import { Lang, ui, INTL_LOCALES } from "./data";
-import { Catalog, CatalogService, tx } from "@/lib/catalog";
+import { Lang, INTL_LOCALES } from "./data";
+import { useUiText } from "./uiText";
+import { Catalog, CatalogService, tx } from "@/lib/catalog.schema";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icon";
 
@@ -97,6 +98,7 @@ function ServiceTile({
   delay?: number;
   big?: boolean;
 }) {
+  const t = useUiText();
   const free = service.precio_desde === 0;
   const titulo = tx(service.titulo_i18n, lang);
   // En tiles grandes mostramos la parte tras "·"; en pequeños, el proveedor.
@@ -104,11 +106,11 @@ function ServiceTile({
 
   let etiquetaPrecio: string;
   if (service.precio_desde === null) {
-    etiquetaPrecio = ui(lang, "view").toUpperCase();
+    etiquetaPrecio = t(lang, "view").toUpperCase();
   } else if (free) {
-    etiquetaPrecio = ui(lang, "free").toUpperCase();
+    etiquetaPrecio = t(lang, "free").toUpperCase();
   } else {
-    etiquetaPrecio = `${ui(lang, "from").toUpperCase()} ${service.precio_desde} €`;
+    etiquetaPrecio = `${t(lang, "from").toUpperCase()} ${service.precio_desde} €`;
   }
 
   return (
@@ -230,6 +232,7 @@ function ServiceTile({
 }
 
 export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps) {
+  const t = useUiText();
   const categories = [...catalog.categories].sort((a, b) => a.orden - b.orden);
 
   const now = new Date().toLocaleDateString(INTL_LOCALES[lang] ?? lang, {
@@ -276,7 +279,7 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
             animationDelay: "0.05s",
           }}
         >
-          {ui(lang, "explore")}
+          {t(lang, "explore")}
         </h1>
         <div
           className="fade-up"
@@ -290,7 +293,7 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
             animationDelay: "0.1s",
           }}
         >
-          {ui(lang, "exploreSub")}
+          {t(lang, "exploreSub")}
         </div>
       </div>
 
@@ -370,7 +373,7 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
           color: "var(--muted)",
         }}
       >
-        {ui(lang, "poweredBy")}{" "}
+        {t(lang, "poweredBy")}{" "}
         <span
           style={{
             fontWeight: 800,

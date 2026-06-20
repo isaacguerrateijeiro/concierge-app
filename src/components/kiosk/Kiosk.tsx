@@ -4,7 +4,8 @@ import { useState, useEffect, type CSSProperties } from "react";
 import AttractScreen from "./AttractScreen";
 import StatusBar from "./StatusBar";
 import HomeScreen from "./HomeScreen";
-import { Catalog } from "@/lib/catalog";
+import { UiTextProvider } from "./uiText";
+import { Catalog } from "@/lib/catalog.schema";
 
 const KIOSK_W = 1080;
 const KIOSK_H = 1920;
@@ -75,6 +76,7 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
           flexShrink: 0,
         }}
       >
+        <UiTextProvider texts={tenant.ui}>
         {screen === "attract" ? (
           <AttractScreen
             lang={lang}
@@ -103,6 +105,7 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
             />
           </>
         )}
+        </UiTextProvider>
       </div>
     </div>
   );

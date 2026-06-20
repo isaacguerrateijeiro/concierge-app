@@ -1,64 +1,35 @@
-import { supabase } from "./supabase";
+import "server-only";
+import { unstable_cache } from "next/cache";
+import { z } from "zod";
+import { createSupabaseStatelessClient } from "./supabase/stateless";
+import { catalogSchema, type Catalog } from "./catalog.schema";
 
-// Un texto traducible: { es: "...", en: "...", ... }. Ampliable a más idiomas.
-export type Localized = Record<string, string>;
+// Re-exportamos los tipos derivados del esquema para no romper imports previos.
+export type {
+  Localized,
+  CatalogTenant,
+  CatalogLocation,
+  CatalogCategory,
+  CatalogProvider,
+  CatalogService,
+  Catalog,
+} from "./catalog.schema";
 
-export interface CatalogTenant {
-  slug: string;
-  nombre: string;
-  branding: {
-    colors?: { ink?: string; bone?: string; accent?: string };
-    fonts?: { serif?: string; sans?: string };
-    mark?: string;
-  };
-  locales: string[];
-  locale_default: string;
+// Cada cuántos segundos se revalida el catálogo cacheado. El catálogo cambia
+// poco, así que un valor alto da rapidez y resiste cortes de red; cuando el
+// panel (Fase 3) edite datos, invalidaremos de inmediato con revalidateCatalog.
+const CATALOG_REVALIDATE_SECONDS = 300;
+
+// Etiqueta de caché para poder invalidar el catálogo bajo demanda.
+export function catalogCacheTag(tenantSlug: string): string {
+  return `catalog:${tenantSlug}`;
 }
 
-export interface CatalogLocation {
-  nombre: string;
-  tipo_i18n: Localized;
-  orden: number;
-}
-
-export interface CatalogCategory {
-  slug: string;
-  nombre_i18n: Localized;
-  subtitulo_i18n: Localized;
-  orden: number;
-}
-
-export interface CatalogProvider {
-  slug: string;
-  nombre: string;
-  color_marca: string | null;
-  logo: string | null;
-}
-
-export interface CatalogService {
-  slug: string;
-  titulo_i18n: Localized;
-  subtitulo_i18n: Localized;
-  tipo_pago: "integrado" | "derivado";
-  precio_desde: number | null;
-  moneda: string;
-  url_redireccion: string | null;
-  icono: string | null;
-  orden: number;
-  categoria: string;
-  proveedor: CatalogProvider;
-}
-
-export interface Catalog {
-  tenant: CatalogTenant;
-  locations: CatalogLocation[];
-  categories: CatalogCategory[];
-  services: CatalogService[];
-}
-
-// Lee el catálogo de un tenant desde Supabase (función RPC get_catalog).
-// Es la ÚNICA vía de lectura del frontal: respeta RLS y nunca expone comisiones.
-export async function getCatalog(tenantSlug: string): Promise<Catalog> {
+// Lectura cruda + validación. Es la ÚNICA vía de lectura del frontal:
+// respeta RLS (vía get_catalog) y nunca expone comisiones. Valida con Zod
+// para que un cambio inesperado en la base no se cuele como fallo silencioso.
+async function fetchCatalog(tenantSlug: string): Promise<Catalog> {
+  const supabase = createSupabaseStatelessClient();
   const { data, error } = await supabase.rpc("get_catalog", {
     p_tenant_slug: tenantSlug,
   });
@@ -66,15 +37,33 @@ export async function getCatalog(tenantSlug: string): Promise<Catalog> {
   if (error) {
     throw new Error(`No se pudo cargar el catálogo: ${error.message}`);
   }
-  const catalog = data as Catalog | null;
-  if (!catalog || !catalog.tenant) {
+
+  // Si el tenant no existe, get_catalog devuelve { tenant: null, ... }.
+  if (!data || (typeof data === "object" && "tenant" in data && data.tenant === null)) {
     throw new Error(`El tenant '${tenantSlug}' no existe o no tiene datos.`);
   }
-  return catalog;
+
+  const result = catalogSchema.safeParse(data);
+  if (!result.success) {
+    throw new Error(
+      `El catálogo de '${tenantSlug}' no tiene el formato esperado:\n${z.prettifyError(result.error)}`
+    );
+  }
+
+  return result.data;
 }
 
-// Devuelve el texto en el idioma pedido, con respaldo al primer idioma disponible.
-export function tx(value: Localized | null | undefined, lang: string): string {
-  if (!value) return "";
-  return value[lang] ?? Object.values(value)[0] ?? "";
+// Catálogo cacheado: se guarda el resultado y se revalida cada
+// CATALOG_REVALIDATE_SECONDS. Sirve respuestas instantáneas entre visitas y
+// reduce la carga sobre la base de datos. Los errores NO se cachean.
+export async function getCatalog(tenantSlug: string): Promise<Catalog> {
+  const cached = unstable_cache(
+    () => fetchCatalog(tenantSlug),
+    ["catalog", tenantSlug],
+    {
+      revalidate: CATALOG_REVALIDATE_SECONDS,
+      tags: [catalogCacheTag(tenantSlug)],
+    }
+  );
+  return cached();
 }

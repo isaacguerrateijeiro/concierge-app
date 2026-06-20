@@ -1,7 +1,8 @@
 "use client";
 
 import Icon from "./Icon";
-import { Lang, ui } from "./data";
+import { Lang } from "./data";
+import { useUiText } from "./uiText";
 
 interface StatusBarProps {
   lang: Lang;
@@ -24,6 +25,7 @@ export default function StatusBar({
   locationName,
   tenantInitial,
 }: StatusBarProps) {
+  const t = useUiText();
   return (
     <div
       style={{
@@ -75,7 +77,7 @@ export default function StatusBar({
               color: "var(--muted)",
             }}
           >
-            {ui(lang, "concierge")}
+            {t(lang, "concierge")}
           </div>
           <div
             style={{
@@ -119,7 +121,7 @@ export default function StatusBar({
           }}
         >
           <Icon name="mic" size={20} sw={2} />
-          {voiceOn && ui(lang, "listening")}
+          {voiceOn && t(lang, "listening")}
         </button>
 
         {/* Selector de idioma (desde tenant.locales) */}
