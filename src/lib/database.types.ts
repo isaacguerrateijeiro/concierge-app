@@ -257,6 +257,63 @@ export type Database = {
           },
         ]
       }
+      order_transfers: {
+        Row: {
+          created_at: string
+          error: string | null
+          estado: string
+          id: string
+          importe: number
+          moneda: string
+          order_id: string
+          provider_id: string
+          stripe_account_id: string | null
+          stripe_transfer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          estado?: string
+          id?: string
+          importe: number
+          moneda?: string
+          order_id: string
+          provider_id: string
+          stripe_account_id?: string | null
+          stripe_transfer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          estado?: string
+          id?: string
+          importe?: number
+          moneda?: string
+          order_id?: string
+          provider_id?: string
+          stripe_account_id?: string | null
+          stripe_transfer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_transfers_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_transfers_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           created_at: string
@@ -326,6 +383,9 @@ export type Database = {
           logo: string | null
           nombre: string
           slug: string
+          stripe_account_id: string | null
+          stripe_onboarding_estado: string | null
+          stripe_payouts_activos: boolean
           tenant_id: string
           updated_at: string
         }
@@ -337,6 +397,9 @@ export type Database = {
           logo?: string | null
           nombre: string
           slug: string
+          stripe_account_id?: string | null
+          stripe_onboarding_estado?: string | null
+          stripe_payouts_activos?: boolean
           tenant_id: string
           updated_at?: string
         }
@@ -348,6 +411,9 @@ export type Database = {
           logo?: string | null
           nombre?: string
           slug?: string
+          stripe_account_id?: string | null
+          stripe_onboarding_estado?: string | null
+          stripe_payouts_activos?: boolean
           tenant_id?: string
           updated_at?: string
         }

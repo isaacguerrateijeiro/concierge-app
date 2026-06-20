@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { crearTransferenciasPedido } from "@/lib/payments/transfers";
+import { leerEstadoCuenta } from "@/lib/stripe/connect";
 
 // El webhook es la FUENTE DE VERDAD del resultado del pago: Stripe nos avisa
 // aquí cuando una sesión se completa o falla, y nosotros actualizamos el pedido.
@@ -44,7 +46,11 @@ export async function POST(req: Request) {
       const session = evento.data.object as Stripe.Checkout.Session;
       // Solo marcamos pagado si el pago realmente está cobrado.
       if (session.payment_status === "paid" || session.payment_status === "no_payment_required") {
-        await marcarPedido(supabase, session.id, "paid", session.payment_intent);
+        const orderId = await marcarPedido(supabase, session.id, "paid", session.payment_intent);
+        // Tras el pago, repartir a cada proveedor su parte (idempotente).
+        if (orderId) {
+          await crearTransferenciasPedido(orderId);
+        }
       }
       break;
     }
@@ -59,7 +65,12 @@ export async function POST(req: Request) {
       break;
     }
     default:
-      // Otros eventos no nos interesan de momento.
+      // Eventos de la cuenta conectada de un proveedor: resincronizamos su
+      // estado de cobros (best-effort; el alta también se sincroniza al volver
+      // del onboarding y con el botón "Sincronizar" del panel).
+      if (esEventoDeCuenta(evento.type)) {
+        await sincronizarCuentaDesdeEvento(supabase, evento);
+      }
       break;
   }
 
@@ -69,28 +80,63 @@ export async function POST(req: Request) {
 
 type EstadoPedido = "paid" | "failed" | "expired";
 
-// Actualiza el pedido por su id de sesión. Idempotente: reaplicar el mismo
-// evento deja el pedido igual.
+// Actualiza el pedido por su id de sesión y devuelve su id. Idempotente:
+// reaplicar el mismo evento deja el pedido igual.
 async function marcarPedido(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   sessionId: string,
   estado: EstadoPedido,
   paymentIntent: string | Stripe.PaymentIntent | null
-): Promise<void> {
+): Promise<string | null> {
   const paymentIntentId =
     typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id ?? null;
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("orders")
     .update({
       estado,
       paid_at: estado === "paid" ? new Date().toISOString() : null,
       stripe_payment_intent_id: paymentIntentId,
     })
-    .eq("stripe_checkout_session_id", sessionId);
+    .eq("stripe_checkout_session_id", sessionId)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     // Lanzamos para devolver 500 y que Stripe reintente el evento.
     throw new Error(`No se pudo actualizar el pedido: ${error.message}`);
   }
+  return data?.id ?? null;
+}
+
+function esEventoDeCuenta(tipo: string): boolean {
+  return tipo.startsWith("account.") || tipo.includes("v2.core.account");
+}
+
+// Extrae el id de la cuenta conectada del evento (v1 o v2) y, si lo encuentra,
+// relee su estado en Stripe y actualiza el proveedor correspondiente.
+async function sincronizarCuentaDesdeEvento(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  evento: Stripe.Event
+): Promise<void> {
+  const obj = evento.data?.object as { id?: string; object?: string } | undefined;
+  let accountId: string | null = null;
+  if (obj?.object === "account" && obj.id) {
+    accountId = obj.id;
+  }
+  if (!accountId) {
+    const rel = (evento as unknown as { related_object?: { id?: string } })
+      .related_object;
+    if (rel?.id?.startsWith("acct_")) accountId = rel.id;
+  }
+  if (!accountId) return;
+
+  const estado = await leerEstadoCuenta(accountId);
+  await supabase
+    .from("providers")
+    .update({
+      stripe_payouts_activos: estado.payoutsActivos,
+      stripe_onboarding_estado: estado.estado,
+    })
+    .eq("stripe_account_id", accountId);
 }

@@ -62,6 +62,22 @@ export async function crearCheckoutParaCarrito(
     throw new Error(`No se pudieron leer los servicios: ${errServ.message}`);
   }
 
+  // Estado de cobros de los proveedores: un servicio integrado solo se puede
+  // pagar si su proveedor ya puede recibir transferencias (Stripe Connect).
+  const providerIdsCarrito = Array.from(
+    new Set((servicios ?? []).map((s) => s.provider_id))
+  );
+  const { data: provs, error: errProv } = await supabase
+    .from("providers")
+    .select("id, stripe_payouts_activos")
+    .in("id", providerIdsCarrito);
+  if (errProv) {
+    throw new Error(`No se pudieron leer los proveedores: ${errProv.message}`);
+  }
+  const payoutReady = new Map(
+    (provs ?? []).map((p) => [p.id, p.stripe_payouts_activos])
+  );
+
   const porSlug = new Map((servicios ?? []).map((s) => [s.slug, s]));
   for (const item of cart.items) {
     const s = porSlug.get(item.service_slug);
@@ -72,6 +88,11 @@ export async function crearCheckoutParaCarrito(
     }
     if (s.precio_desde === null) {
       throw new Error(`El servicio '${item.service_slug}' no tiene precio.`);
+    }
+    if (!payoutReady.get(s.provider_id)) {
+      throw new Error(
+        `El servicio '${item.service_slug}' no está disponible para pago en este momento.`
+      );
     }
   }
 
@@ -201,6 +222,8 @@ export async function crearCheckoutParaCarrito(
         product_data: { name: l.titulo },
       },
     })),
+    // Enlaza el cobro con las transferencias posteriores a cada proveedor.
+    payment_intent_data: { transfer_group: pedido.id },
     metadata: { order_id: pedido.id },
   });
 
