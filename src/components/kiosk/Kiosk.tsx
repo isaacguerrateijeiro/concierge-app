@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import AttractScreen from "./AttractScreen";
 import StatusBar from "./StatusBar";
 import HomeScreen from "./HomeScreen";
@@ -11,9 +11,15 @@ import ConfirmationScreen from "./ConfirmationScreen";
 import { UiTextProvider } from "./uiText";
 import { Catalog, CatalogService } from "@/lib/catalog.schema";
 import type { Cart } from "@/lib/payments/cart.schema";
+import { trackEvent } from "@/lib/kiosk/track";
 
 const KIOSK_W = 1080;
 const KIOSK_H = 1920;
+
+function nuevoSessionId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 type Screen = "attract" | "home" | "cart" | "checkout" | "confirm";
 
@@ -27,6 +33,25 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
   // Carrito: slug del servicio -> cantidad.
   const [cart, setCart] = useState<Record<string, number>>({});
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Sesión de analítica (distinta del checkout de Stripe). Vive en un ref para
+  // no provocar renders ni setState dentro de efectos; solo alimenta el tracker.
+  const analyticsRef = useRef<string | null>(null);
+
+  // Helper de instrumentación: emite un evento atado a la sesión actual.
+  const track = useMemo(() => {
+    return (tipo: Parameters<typeof trackEvent>[0]["tipo"], id: string, payload?: Record<string, unknown>) =>
+      trackEvent({ tenantSlug: tenant.slug, sessionId: id, tipo, locale: lang, payload });
+  }, [tenant.slug, lang]);
+
+  // Inicia la sesión al montar y registra cada cambio de pantalla.
+  useEffect(() => {
+    if (!analyticsRef.current) {
+      analyticsRef.current = nuevoSessionId();
+      track("session_start", analyticsRef.current);
+    }
+    track("screen_view", analyticsRef.current, { screen });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
 
   // Datos derivados del catálogo para las pantallas
   const locationName = locations[0]?.nombre ?? tenant.nombre;
@@ -51,12 +76,17 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
     items: lines.map((l) => ({ service_slug: l.service.slug, cantidad: l.cantidad })),
   };
 
-  // Colores de marca desde la base de datos -> variables CSS
+  // Colores y fuentes de marca desde la base de datos -> variables CSS.
+  // Las fuentes solo se aplican si están cargadas o son del sistema; en otro
+  // caso el navegador usa el respaldo definido en globals.css.
   const colors = tenant.branding?.colors ?? {};
+  const fonts = tenant.branding?.fonts ?? {};
   const brandVars: CSSProperties = {
     ...(colors.ink ? { ["--ink" as string]: colors.ink } : {}),
     ...(colors.bone ? { ["--bone" as string]: colors.bone } : {}),
     ...(colors.accent ? { ["--accent" as string]: colors.accent } : {}),
+    ...(fonts.serif ? { ["--font-serif" as string]: `"${fonts.serif}"` } : {}),
+    ...(fonts.sans ? { ["--font-inter" as string]: `"${fonts.sans}"` } : {}),
   } as CSSProperties;
 
   // Escala el kiosko 1080×1920 para encajar en la ventana
@@ -87,6 +117,7 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
       return;
     }
     setCart((prev) => ({ ...prev, [service.slug]: (prev[service.slug] ?? 0) + 1 }));
+    if (analyticsRef.current) track("add_to_cart", analyticsRef.current, { service_slug: service.slug });
   }
 
   function incItem(slug: string) {
@@ -111,6 +142,9 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
   function resetKiosk() {
     setCart({});
     setSessionId(null);
+    // Nueva sesión de analítica para el siguiente visitante.
+    analyticsRef.current = nuevoSessionId();
+    track("session_start", analyticsRef.current);
     setScreen("attract");
   }
 
@@ -168,7 +202,10 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
                 count={cartCount}
                 total={cartTotal}
                 moneda={moneda}
-                onOpen={() => setScreen("cart")}
+                onOpen={() => {
+                  if (analyticsRef.current) track("view_cart", analyticsRef.current, { count: cartCount });
+                  setScreen("cart");
+                }}
               />
             </>
           )}
@@ -183,7 +220,10 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
               onDec={decItem}
               onRemove={removeItem}
               onBack={() => setScreen("home")}
-              onPay={() => setScreen("checkout")}
+              onPay={() => {
+                if (analyticsRef.current) track("checkout_start", analyticsRef.current, { total: cartTotal });
+                setScreen("checkout");
+              }}
             />
           )}
 
@@ -194,6 +234,7 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
               onCancel={() => setScreen("cart")}
               onCompleted={(sid) => {
                 setSessionId(sid);
+                if (analyticsRef.current) track("payment_success", analyticsRef.current, { checkout_session: sid });
                 setScreen("confirm");
               }}
             />

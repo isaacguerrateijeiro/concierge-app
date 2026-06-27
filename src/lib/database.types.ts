@@ -14,6 +14,68 @@ export type Database = {
   }
   public: {
     Tables: {
+      campaigns: {
+        Row: {
+          asunto: string | null
+          audiencia: number
+          canal: string
+          created_at: string
+          created_by: string | null
+          enviada_at: string | null
+          enviados: number
+          estado: string
+          fallidos: number
+          id: string
+          mensaje: string
+          nombre: string
+          segmento: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          asunto?: string | null
+          audiencia?: number
+          canal: string
+          created_at?: string
+          created_by?: string | null
+          enviada_at?: string | null
+          enviados?: number
+          estado?: string
+          fallidos?: number
+          id?: string
+          mensaje: string
+          nombre: string
+          segmento?: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          asunto?: string | null
+          audiencia?: number
+          canal?: string
+          created_at?: string
+          created_by?: string | null
+          enviada_at?: string | null
+          enviados?: number
+          estado?: string
+          fallidos?: number
+          id?: string
+          mensaje?: string
+          nombre?: string
+          segmento?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categories: {
         Row: {
           activo: boolean
@@ -125,6 +187,109 @@ export type Database = {
           },
         ]
       }
+      kiosk_events: {
+        Row: {
+          created_at: string
+          id: number
+          payload: Json
+          session_id: string
+          tenant_id: string
+          tipo: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          payload?: Json
+          session_id: string
+          tenant_id: string
+          tipo: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          payload?: Json
+          session_id?: string
+          tenant_id?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kiosk_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "kiosk_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kiosk_events_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kiosk_sessions: {
+        Row: {
+          converted: boolean
+          id: string
+          last_seen_at: string
+          locale: string | null
+          location_id: string | null
+          order_id: string | null
+          reached_cart: boolean
+          reached_checkout: boolean
+          started_at: string
+          tenant_id: string
+        }
+        Insert: {
+          converted?: boolean
+          id: string
+          last_seen_at?: string
+          locale?: string | null
+          location_id?: string | null
+          order_id?: string | null
+          reached_cart?: boolean
+          reached_checkout?: boolean
+          started_at?: string
+          tenant_id: string
+        }
+        Update: {
+          converted?: boolean
+          id?: string
+          last_seen_at?: string
+          locale?: string | null
+          location_id?: string | null
+          order_id?: string | null
+          reached_cart?: boolean
+          reached_checkout?: boolean
+          started_at?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kiosk_sessions_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kiosk_sessions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kiosk_sessions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       locations: {
         Row: {
           activo: boolean
@@ -159,6 +324,41 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "locations_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      memberships: {
+        Row: {
+          created_at: string
+          id: string
+          rol: string
+          tenant_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          rol: string
+          tenant_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          rol?: string
+          tenant_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "memberships_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -552,6 +752,33 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          is_platform_admin: boolean
+          nombre: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id: string
+          is_platform_admin?: boolean
+          nombre?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_platform_admin?: boolean
+          nombre?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       provider_invoice_counters: {
         Row: {
           anio: number
@@ -772,12 +999,53 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      app_can_access_tenant: { Args: { p_tenant: string }; Returns: boolean }
+      app_has_tenant_role: {
+        Args: { p_roles: string[]; p_tenant: string }
+        Returns: boolean
+      }
+      app_is_platform_admin: { Args: never; Returns: boolean }
       get_catalog: { Args: { p_tenant_slug: string }; Returns: Json }
       get_order_status: { Args: { p_session_id: string }; Returns: Json }
       get_recibo: { Args: { p_token: string }; Returns: Json }
+      panel_clientes: {
+        Args: { p_desde: string; p_hasta: string; p_tenant: string }
+        Returns: Json
+      }
+      panel_funnel: {
+        Args: { p_desde: string; p_hasta: string; p_tenant: string }
+        Returns: Json
+      }
+      panel_metrics: {
+        Args: { p_desde: string; p_hasta: string; p_tenant: string }
+        Returns: Json
+      }
+      panel_top_servicios: {
+        Args: {
+          p_desde: string
+          p_hasta: string
+          p_limite?: number
+          p_tenant: string
+        }
+        Returns: Json
+      }
+      panel_ventas: {
+        Args: { p_desde: string; p_hasta: string; p_tenant: string }
+        Returns: Json
+      }
       siguiente_numero_factura: {
         Args: { p_anio: number; p_provider_id: string; p_serie: string }
         Returns: number
+      }
+      track_kiosk_event: {
+        Args: {
+          p_locale?: string
+          p_payload?: Json
+          p_session: string
+          p_tenant_slug: string
+          p_tipo: string
+        }
+        Returns: undefined
       }
     }
     Enums: {

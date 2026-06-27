@@ -1,0 +1,156 @@
+"use client";
+
+import { useActionState, useState } from "react";
+import {
+  guardarKiosko,
+  alternarKiosko,
+  eliminarKiosko,
+  type FormState,
+} from "./actions";
+import type { Kiosko } from "@/lib/panel/devices";
+import { fmtFechaHora } from "@/lib/panel/format";
+
+const initial: FormState = {};
+
+const NOMBRE_IDIOMA: Record<string, string> = {
+  es: "Español", en: "English", fr: "Français", de: "Deutsch", it: "Italiano", pt: "Português",
+};
+const nombreIdioma = (c: string) => NOMBRE_IDIOMA[c] ?? c.toUpperCase();
+
+function Row({ k, puedeEditar, onEdit, ahora }: { k: Kiosko; puedeEditar: boolean; onEdit: (k: Kiosko) => void; ahora: number }) {
+  const [, togAction, togPending] = useActionState(alternarKiosko, initial);
+  const [delState, delAction, delPending] = useActionState(eliminarKiosko, initial);
+
+  const activoReciente = k.ultimoPedido && ahora - new Date(k.ultimoPedido).getTime() < 86400000;
+  const estado = !k.activo ? "offline" : activoReciente ? "online" : "idle";
+  const estadoLabel = !k.activo ? "Inactivo" : activoReciente ? "Activo hoy" : "En reposo";
+
+  return (
+    <tr>
+      <td className="td-strong">{k.nombre}</td>
+      <td>{k.tipoI18n.es ?? Object.values(k.tipoI18n)[0] ?? "—"}</td>
+      <td>
+        <span className="device-status">
+          <span className={`ds-dot ${estado}`} /> {estadoLabel}
+        </span>
+      </td>
+      <td className="mono">{k.pedidos}</td>
+      <td style={{ color: "var(--muted)", fontSize: 12.5 }}>
+        {k.ultimoPedido ? fmtFechaHora(k.ultimoPedido) : "—"}
+      </td>
+      {puedeEditar && (
+        <td>
+          <div className="row-actions">
+            <form action={togAction}>
+              <input type="hidden" name="id" value={k.id} />
+              <input type="hidden" name="activo" value={String(k.activo)} />
+              <button type="submit" className={`toggle ${k.activo ? "on" : ""}`} disabled={togPending} title={k.activo ? "Desactivar" : "Activar"} />
+            </form>
+            <button className="mini-btn" onClick={() => onEdit(k)} title="Editar">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>
+            </button>
+            <form action={delAction}>
+              <input type="hidden" name="id" value={k.id} />
+              <button type="submit" className="mini-btn" disabled={delPending} title="Eliminar" style={{ color: "var(--danger)" }}>×</button>
+            </form>
+          </div>
+          {delState.error && <div style={{ color: "var(--danger)", fontSize: 11 }}>{delState.error}</div>}
+        </td>
+      )}
+    </tr>
+  );
+}
+
+export function KioskManager({
+  kioskos,
+  locales,
+  puedeEditar,
+}: {
+  kioskos: Kiosko[];
+  locales: string[];
+  puedeEditar: boolean;
+}) {
+  const [state, action, pending] = useActionState(guardarKiosko, initial);
+  const [editando, setEditando] = useState<Kiosko | null>(null);
+  const [abierto, setAbierto] = useState(false);
+  // Capturamos "ahora" una sola vez para el cálculo de estado (pureza en render).
+  const [ahora] = useState(() => Date.now());
+
+  function abrirNuevo() {
+    setEditando(null);
+    setAbierto(true);
+  }
+  function abrirEdicion(k: Kiosko) {
+    setEditando(k);
+    setAbierto(true);
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 22 }}>
+      {puedeEditar && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button className="btn btn-accent" onClick={abrirNuevo}>+ Nuevo kiosko</button>
+        </div>
+      )}
+
+      {puedeEditar && abierto && (
+        <form action={action} className="panel" key={editando?.id ?? "nuevo"}>
+          <div className="panel-head">
+            <div><h3>{editando ? "Editar kiosko" : "Nuevo kiosko"}</h3></div>
+          </div>
+          {state.error && <div className="err" style={{ marginBottom: 12 }}>{state.error}</div>}
+          {state.ok && <div className="ok-note" style={{ marginBottom: 12 }}>Guardado.</div>}
+          {editando && <input type="hidden" name="id" value={editando.id} />}
+          <div className="field-row">
+            <div className="field">
+              <label>Nombre del kiosko</label>
+              <input className="input" name="nombre" defaultValue={editando?.nombre ?? ""} placeholder="Recepción · Hall principal" required />
+            </div>
+            <div className="field">
+              <label>Orden</label>
+              <input className="input" type="number" name="orden" defaultValue={editando?.orden ?? 0} min={0} />
+            </div>
+          </div>
+          <div className="field-row">
+            {locales.map((l) => (
+              <div className="field" key={l}>
+                <label>Tipo / descripción ({nombreIdioma(l)})</label>
+                <input className="input" name={`tipo_${l}`} defaultValue={editando?.tipoI18n[l] ?? ""} placeholder="Tótem interior" />
+              </div>
+            ))}
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+            <input type="checkbox" name="activo" defaultChecked={editando?.activo ?? true} /> Activo
+          </label>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button type="submit" className="btn btn-primary" disabled={pending}>
+              {pending ? "Guardando…" : "Guardar kiosko"}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setAbierto(false)}>Cerrar</button>
+          </div>
+        </form>
+      )}
+
+      <div className="table-wrap">
+        <div className="tw-head"><h3>Kioskos ({kioskos.length})</h3></div>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Kiosko</th><th>Tipo</th><th>Estado</th><th>Pedidos</th><th>Última actividad</th>
+                {puedeEditar && <th></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {kioskos.length === 0 ? (
+                <tr><td colSpan={puedeEditar ? 6 : 5}><div className="empty-note">Aún no hay kioskos. {puedeEditar ? "Crea el primero." : ""}</div></td></tr>
+              ) : (
+                kioskos.map((k) => <Row key={k.id} k={k} puedeEditar={puedeEditar} onEdit={abrirEdicion} ahora={ahora} />)
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

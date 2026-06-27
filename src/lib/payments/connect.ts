@@ -6,14 +6,22 @@ import {
   crearEnlaceOnboarding,
   leerEstadoCuenta,
 } from "@/lib/stripe/connect";
-import { requireAdmin } from "@/lib/admin/auth";
+import { requirePanelContext, assertCapacidad } from "@/lib/auth/context";
+
+// Autoriza la operación de Connect: exige sesión de panel y capacidad de
+// gestión. Devuelve el tenant activo para acotar la operación (multi-tenant).
+async function autorizarTenant(): Promise<string> {
+  const ctx = await requirePanelContext();
+  assertCapacidad(ctx, "settings.manage");
+  return ctx.currentTenant.id;
+}
 
 // Inicia (o reanuda) el onboarding de Connect de un proveedor: crea la cuenta
 // conectada si no existe y devuelve el enlace de onboarding alojado por Stripe.
 export async function iniciarOnboardingProveedor(
   providerId: string
 ): Promise<string> {
-  await requireAdmin();
+  const tenantId = await autorizarTenant();
   const supabase = createSupabaseAdminClient();
 
   const { data: provider, error } = await supabase
@@ -23,6 +31,9 @@ export async function iniciarOnboardingProveedor(
     .single();
   if (error || !provider) {
     throw new Error(`Proveedor no encontrado: ${error?.message ?? providerId}`);
+  }
+  if (provider.tenant_id !== tenantId) {
+    throw new Error("No autorizado: el proveedor no pertenece a este destino.");
   }
 
   let accountId = provider.stripe_account_id;
@@ -63,16 +74,19 @@ export async function sincronizarEstadoProveedor(
   providerId: string,
   esperarActivo = false
 ): Promise<boolean> {
-  await requireAdmin();
+  const tenantId = await autorizarTenant();
   const supabase = createSupabaseAdminClient();
 
   const { data: provider, error } = await supabase
     .from("providers")
-    .select("id, stripe_account_id")
+    .select("id, stripe_account_id, tenant_id")
     .eq("id", providerId)
     .single();
   if (error || !provider) {
     throw new Error(`Proveedor no encontrado: ${error?.message ?? providerId}`);
+  }
+  if (provider.tenant_id !== tenantId) {
+    throw new Error("No autorizado: el proveedor no pertenece a este destino.");
   }
   if (!provider.stripe_account_id) return false;
 

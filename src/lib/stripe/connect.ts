@@ -71,8 +71,8 @@ export async function crearEnlaceOnboarding(
       type: "account_onboarding",
       account_onboarding: {
         configurations: ["recipient"],
-        refresh_url: `${base}/admin/connect/refresh?provider=${providerId}`,
-        return_url: `${base}/admin/connect/return?provider=${providerId}`,
+        refresh_url: `${base}/panel/connect/refresh?provider=${providerId}`,
+        return_url: `${base}/panel/connect/return?provider=${providerId}`,
       },
     },
   });
