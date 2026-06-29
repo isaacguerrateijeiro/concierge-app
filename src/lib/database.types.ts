@@ -187,6 +187,63 @@ export type Database = {
           },
         ]
       }
+      import_runs: {
+        Row: {
+          actualizados: number
+          creados: number
+          created_at: string
+          detalle: Json
+          detectados: number
+          errores: number
+          estado: string
+          fuente_url: string | null
+          id: string
+          provider_id: string
+          tenant_id: string
+        }
+        Insert: {
+          actualizados?: number
+          creados?: number
+          created_at?: string
+          detalle?: Json
+          detectados?: number
+          errores?: number
+          estado?: string
+          fuente_url?: string | null
+          id?: string
+          provider_id: string
+          tenant_id: string
+        }
+        Update: {
+          actualizados?: number
+          creados?: number
+          created_at?: string
+          detalle?: Json
+          detectados?: number
+          errores?: number
+          estado?: string
+          fuente_url?: string | null
+          id?: string
+          provider_id?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_runs_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "import_runs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kiosk_events: {
         Row: {
           created_at: string
@@ -518,6 +575,7 @@ export type Database = {
         Row: {
           cantidad: number
           created_at: string
+          fecha_servicio: string | null
           id: string
           importe: number
           iva_tipo: number
@@ -526,10 +584,13 @@ export type Database = {
           service_id: string | null
           service_slug: string
           titulo: string
+          variant_label: string | null
+          variant_tipo: string | null
         }
         Insert: {
           cantidad: number
           created_at?: string
+          fecha_servicio?: string | null
           id?: string
           importe: number
           iva_tipo?: number
@@ -538,10 +599,13 @@ export type Database = {
           service_id?: string | null
           service_slug: string
           titulo: string
+          variant_label?: string | null
+          variant_tipo?: string | null
         }
         Update: {
           cantidad?: number
           created_at?: string
+          fecha_servicio?: string | null
           id?: string
           importe?: number
           iva_tipo?: number
@@ -550,6 +614,8 @@ export type Database = {
           service_id?: string | null
           service_slug?: string
           titulo?: string
+          variant_label?: string | null
+          variant_tipo?: string | null
         }
         Relationships: [
           {
@@ -817,6 +883,8 @@ export type Database = {
           color_marca: string | null
           created_at: string
           fiscal_config: Json
+          fuente_config: Json
+          fuente_url: string | null
           id: string
           logo: string | null
           nombre: string
@@ -832,6 +900,8 @@ export type Database = {
           color_marca?: string | null
           created_at?: string
           fiscal_config?: Json
+          fuente_config?: Json
+          fuente_url?: string | null
           id?: string
           logo?: string | null
           nombre: string
@@ -847,6 +917,8 @@ export type Database = {
           color_marca?: string | null
           created_at?: string
           fiscal_config?: Json
+          fuente_config?: Json
+          fuente_url?: string | null
           id?: string
           logo?: string | null
           nombre?: string
@@ -867,22 +939,69 @@ export type Database = {
           },
         ]
       }
+      service_price_tiers: {
+        Row: {
+          activo: boolean
+          created_at: string
+          id: string
+          label_i18n: Json
+          orden: number
+          precio: number
+          service_id: string
+          tipo: string
+        }
+        Insert: {
+          activo?: boolean
+          created_at?: string
+          id?: string
+          label_i18n?: Json
+          orden?: number
+          precio: number
+          service_id: string
+          tipo: string
+        }
+        Update: {
+          activo?: boolean
+          created_at?: string
+          id?: string
+          label_i18n?: Json
+          orden?: number
+          precio?: number
+          service_id?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_price_tiers_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       services: {
         Row: {
           activo: boolean
           category_id: string
           created_at: string
+          duracion_i18n: Json
+          estado: string
+          fuente_ref: string | null
           icono: string | null
           id: string
+          imagen_url: string | null
           iva_tipo: number | null
           moneda: string
           orden: number
+          parent_id: string | null
           precio_desde: number | null
           provider_id: string
           slug: string
           subtitulo_i18n: Json
           tenant_id: string
-          tipo_pago: string
+          tipo_nodo: string
+          tipo_pago: string | null
           titulo_i18n: Json
           updated_at: string
           url_redireccion: string | null
@@ -891,17 +1010,23 @@ export type Database = {
           activo?: boolean
           category_id: string
           created_at?: string
+          duracion_i18n?: Json
+          estado?: string
+          fuente_ref?: string | null
           icono?: string | null
           id?: string
+          imagen_url?: string | null
           iva_tipo?: number | null
           moneda?: string
           orden?: number
+          parent_id?: string | null
           precio_desde?: number | null
           provider_id: string
           slug: string
           subtitulo_i18n?: Json
           tenant_id: string
-          tipo_pago: string
+          tipo_nodo?: string
+          tipo_pago?: string | null
           titulo_i18n?: Json
           updated_at?: string
           url_redireccion?: string | null
@@ -910,17 +1035,23 @@ export type Database = {
           activo?: boolean
           category_id?: string
           created_at?: string
+          duracion_i18n?: Json
+          estado?: string
+          fuente_ref?: string | null
           icono?: string | null
           id?: string
+          imagen_url?: string | null
           iva_tipo?: number | null
           moneda?: string
           orden?: number
+          parent_id?: string | null
           precio_desde?: number | null
           provider_id?: string
           slug?: string
           subtitulo_i18n?: Json
           tenant_id?: string
-          tipo_pago?: string
+          tipo_nodo?: string
+          tipo_pago?: string | null
           titulo_i18n?: Json
           updated_at?: string
           url_redireccion?: string | null
@@ -931,6 +1062,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "services_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "services"
             referencedColumns: ["id"]
           },
           {

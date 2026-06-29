@@ -1,11 +1,36 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { guardarServicio, type FormState } from "./actions";
-import type { ProveedorMini, CategoriaPanel, ServicioPanel, I18n } from "@/lib/panel/catalog";
+import type {
+  ProveedorMini,
+  CategoriaPanel,
+  ServicioPanel,
+  PriceTierPanel,
+  OpcionPadre,
+  I18n,
+} from "@/lib/panel/catalog";
 
 const initial: FormState = {};
+
+interface TierDraft {
+  tipo: string;
+  label_es: string;
+  label_en: string;
+  precio: string;
+  orden: number;
+}
+
+function tierFromPanel(t: PriceTierPanel): TierDraft {
+  return {
+    tipo: t.tipo,
+    label_es: t.label_i18n["es"] ?? "",
+    label_en: t.label_i18n["en"] ?? "",
+    precio: t.precio.toFixed(2),
+    orden: t.orden,
+  };
+}
 
 const LOCALE_LABEL: Record<string, string> = {
   es: "Español",
@@ -20,16 +45,44 @@ export function ServiceForm({
   servicio,
   proveedores,
   categorias,
+  padres,
   locales,
 }: {
   servicio: ServicioPanel | null;
   proveedores: ProveedorMini[];
   categorias: CategoriaPanel[];
+  padres: OpcionPadre[];
   locales: string[];
 }) {
   const [state, formAction, pending] = useActionState(guardarServicio, initial);
+  const [tipoNodo, setTipoNodo] = useState<"grupo" | "servicio">(
+    servicio?.tipo_nodo ?? "servicio"
+  );
+  const [tipoPago, setTipoPago] = useState<string>(
+    servicio?.tipo_pago ?? "integrado"
+  );
+  const [tiers, setTiers] = useState<TierDraft[]>(
+    (servicio?.tiers ?? []).map(tierFromPanel)
+  );
   const t = (servicio?.titulo_i18n ?? {}) as I18n;
   const sub = (servicio?.subtitulo_i18n ?? {}) as I18n;
+  const esServicio = tipoNodo === "servicio";
+  const esIntegrado = esServicio && tipoPago === "integrado";
+
+  function addTier() {
+    setTiers((prev) => [
+      ...prev,
+      { tipo: "", label_es: "", label_en: "", precio: "", orden: prev.length },
+    ]);
+  }
+  function removeTier(idx: number) {
+    setTiers((prev) => prev.filter((_, i) => i !== idx));
+  }
+  function updateTier(idx: number, field: keyof TierDraft, value: string | number) {
+    setTiers((prev) =>
+      prev.map((t, i) => (i === idx ? { ...t, [field]: value } : t))
+    );
+  }
 
   return (
     <form action={formAction} className="panel" style={{ maxWidth: 720 }}>
@@ -37,8 +90,35 @@ export function ServiceForm({
       {state.error && <div className="err" style={{ marginBottom: 14 }}>{state.error}</div>}
 
       <div className="form-section">
-        <div className="fs-title">{servicio ? "Editar servicio" : "Nuevo servicio"}</div>
-        <div className="fs-desc">Los cambios se publican al instante en el kiosko.</div>
+        <div className="fs-title">{servicio ? "Editar nodo" : "Nuevo nodo de catálogo"}</div>
+        <div className="fs-desc">
+          Un <strong>grupo</strong> agrupa otros nodos (no se vende). Un{" "}
+          <strong>servicio</strong> es una hoja vendible con precio.
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <label>Tipo de nodo</label>
+            <select
+              className="input"
+              name="tipo_nodo"
+              value={tipoNodo}
+              onChange={(e) => setTipoNodo(e.target.value as "grupo" | "servicio")}
+            >
+              <option value="servicio">Servicio (vendible)</option>
+              <option value="grupo">Grupo (agrupador)</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Nodo padre <span className="hint">opcional</span></label>
+            <select className="input" name="parent_id" defaultValue={servicio?.parent_id ?? ""}>
+              <option value="">— Nivel superior (sin padre)</option>
+              {padres.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
         {locales.map((l) => (
           <div className="field-row" key={l}>
@@ -69,13 +149,13 @@ export function ServiceForm({
               className="input"
               name="slug"
               defaultValue={servicio?.slug ?? ""}
-              placeholder="free-tour-madrid"
+              placeholder="bus-turistico-madrid"
               required
             />
           </div>
           <div className="field">
             <label>Icono <span className="hint">emoji opcional</span></label>
-            <input className="input" name="icono" defaultValue={servicio?.icono ?? ""} placeholder="🎒" />
+            <input className="input" name="icono" defaultValue={servicio?.icono ?? ""} placeholder="🚌" />
           </div>
         </div>
 
@@ -104,10 +184,10 @@ export function ServiceForm({
 
         <div className="field-row">
           <div className="field">
-            <label>Modelo de pago</label>
-            <select className="input" name="tipo_pago" defaultValue={servicio?.tipo_pago ?? "integrado"}>
-              <option value="integrado">Integrado (Stripe)</option>
-              <option value="derivado">Derivado a tercero</option>
+            <label>Estado</label>
+            <select className="input" name="estado" defaultValue={servicio?.estado ?? "publicado"}>
+              <option value="publicado">Publicado (visible en kiosko)</option>
+              <option value="borrador">Borrador (oculto)</option>
             </select>
           </div>
           <div className="field">
@@ -116,41 +196,138 @@ export function ServiceForm({
           </div>
         </div>
 
-        <div className="field-row">
-          <div className="field">
-            <label>Precio desde <span className="hint">€, opcional</span></label>
-            <input
-              className="input"
-              name="precio_desde"
-              defaultValue={servicio?.precio_desde ?? ""}
-              placeholder="14.00"
-            />
-          </div>
-          <div className="field">
-            <label>IVA % <span className="hint">21, 10, 0…</span></label>
-            <input
-              className="input"
-              name="iva_tipo"
-              defaultValue={servicio?.iva_tipo ?? ""}
-              placeholder="21"
-            />
-          </div>
-        </div>
-
         <div className="field">
-          <label>URL de redirección <span className="hint">solo servicios derivados</span></label>
+          <label>Imagen <span className="hint">URL, opcional</span></label>
           <input
             className="input"
-            name="url_redireccion"
-            defaultValue={servicio?.url_redireccion ?? ""}
-            placeholder="https://…"
+            name="imagen_url"
+            defaultValue={servicio?.imagen_url ?? ""}
+            placeholder="https://…/foto.jpg"
           />
         </div>
+
+        {esServicio && (
+          <>
+            <div className="field-row">
+              <div className="field">
+                <label>Modelo de pago</label>
+                <select
+                  className="input"
+                  name="tipo_pago"
+                  value={tipoPago}
+                  onChange={(e) => setTipoPago(e.target.value)}
+                >
+                  <option value="integrado">Integrado (Stripe)</option>
+                  <option value="derivado">Derivado a tercero</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>IVA % <span className="hint">21, 10, 0…</span></label>
+                <input
+                  className="input"
+                  name="iva_tipo"
+                  defaultValue={servicio?.iva_tipo ?? ""}
+                  placeholder="21"
+                />
+              </div>
+            </div>
+
+            <div className="field-row">
+              <div className="field">
+                <label>Precio desde <span className="hint">€, mínimo mostrado en el kiosko</span></label>
+                <input
+                  className="input"
+                  name="precio_desde"
+                  defaultValue={servicio?.precio_desde ?? ""}
+                  placeholder="14.00"
+                />
+              </div>
+              <div className="field">
+                <label>URL de redirección <span className="hint">solo derivados</span></label>
+                <input
+                  className="input"
+                  name="url_redireccion"
+                  defaultValue={servicio?.url_redireccion ?? ""}
+                  placeholder="https://…"
+                />
+              </div>
+            </div>
+
+            {/* Editor de tarifas por tipo de pasajero (solo integrado) */}
+            {esIntegrado && (
+              <div className="form-section" style={{ marginTop: 24, padding: "20px 24px", background: "var(--bone-2, #f4f4f0)", borderRadius: 12, border: "1px solid var(--line, #e0e0d8)" }}>
+                <div className="fs-title" style={{ marginBottom: 4 }}>Tarifas por tipo de pasajero</div>
+                <div className="fs-desc" style={{ marginBottom: 14 }}>
+                  Define precios para adultos, niños, seniors… El kiosko mostrará un selector de cantidad por tipo con calendario de fecha.
+                </div>
+                <input type="hidden" name="tier_count" value={tiers.length} />
+                {tiers.map((tier, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <input type="hidden" name={`tier_orden_${i}`} value={i} />
+                    <div className="field" style={{ minWidth: 100, flex: "0 0 auto" }}>
+                      {i === 0 && <label>Clave</label>}
+                      <input
+                        className="input"
+                        placeholder="adulto"
+                        value={tier.tipo}
+                        onChange={(e) => updateTier(i, "tipo", e.target.value)}
+                        name={`tier_tipo_${i}`}
+                        required
+                      />
+                    </div>
+                    <div className="field" style={{ minWidth: 110, flex: "1 1 auto" }}>
+                      {i === 0 && <label>Etiqueta ES</label>}
+                      <input
+                        className="input"
+                        placeholder="Adulto"
+                        value={tier.label_es}
+                        onChange={(e) => updateTier(i, "label_es", e.target.value)}
+                        name={`tier_label_es_${i}`}
+                      />
+                    </div>
+                    <div className="field" style={{ minWidth: 110, flex: "1 1 auto" }}>
+                      {i === 0 && <label>Etiqueta EN</label>}
+                      <input
+                        className="input"
+                        placeholder="Adult"
+                        value={tier.label_en}
+                        onChange={(e) => updateTier(i, "label_en", e.target.value)}
+                        name={`tier_label_en_${i}`}
+                      />
+                    </div>
+                    <div className="field" style={{ minWidth: 90, flex: "0 0 auto" }}>
+                      {i === 0 && <label>Precio €</label>}
+                      <input
+                        className="input"
+                        placeholder="29.70"
+                        value={tier.precio}
+                        onChange={(e) => updateTier(i, "precio", e.target.value)}
+                        name={`tier_precio_${i}`}
+                        required
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeTier(i)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ alignSelf: "flex-end", color: "var(--muted)" }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button type="button" onClick={addTier} className="btn btn-ghost btn-sm">
+                  + Añadir tarifa
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
         <div className="field">
           <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <input type="checkbox" name="activo" defaultChecked={servicio?.activo ?? true} />
-            Visible en el kiosko
+            Activo
           </label>
         </div>
       </div>

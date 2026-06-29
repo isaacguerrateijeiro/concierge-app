@@ -18,11 +18,15 @@ const schema = z.object({
   slug: z.string().regex(slugRe, "Slug inválido (minúsculas, guiones)"),
   provider_id: z.string().uuid("Proveedor no válido"),
   category_id: z.string().uuid("Categoría no válida"),
-  tipo_pago: z.enum(["integrado", "derivado"]),
+  tipo_nodo: z.enum(["grupo", "servicio"]).default("servicio"),
+  parent_id: z.string().uuid().optional().or(z.literal("")),
+  estado: z.enum(["borrador", "publicado"]).default("publicado"),
+  tipo_pago: z.enum(["integrado", "derivado"]).optional().or(z.literal("")),
   precio_desde: z.string().optional(),
   iva_tipo: z.string().optional(),
   url_redireccion: z.string().url("URL no válida").optional().or(z.literal("")),
   icono: z.string().optional(),
+  imagen_url: z.string().url("URL de imagen no válida").optional().or(z.literal("")),
   orden: z.string().optional(),
   activo: z.string().optional(),
 });
@@ -65,11 +69,15 @@ export async function guardarServicio(
     slug: formData.get("slug"),
     provider_id: formData.get("provider_id"),
     category_id: formData.get("category_id"),
-    tipo_pago: formData.get("tipo_pago"),
+    tipo_nodo: formData.get("tipo_nodo") ?? "servicio",
+    parent_id: formData.get("parent_id") ?? "",
+    estado: formData.get("estado") ?? "publicado",
+    tipo_pago: formData.get("tipo_pago") ?? "",
     precio_desde: formData.get("precio_desde") ?? undefined,
     iva_tipo: formData.get("iva_tipo") ?? undefined,
     url_redireccion: formData.get("url_redireccion") ?? "",
     icono: formData.get("icono") ?? undefined,
+    imagen_url: formData.get("imagen_url") ?? "",
     orden: formData.get("orden") ?? undefined,
     activo: formData.get("activo") ?? undefined,
   });
@@ -77,6 +85,16 @@ export async function guardarServicio(
     return { error: parsed.error.issues[0]?.message ?? "Datos no válidos" };
   }
   const d = parsed.data;
+
+  // Un nodo 'servicio' (hoja vendible) necesita modelo de pago; un 'grupo' no.
+  const esGrupo = d.tipo_nodo === "grupo";
+  if (!esGrupo && (d.tipo_pago === "" || !d.tipo_pago)) {
+    return { error: "Un servicio vendible necesita un modelo de pago." };
+  }
+  // No permitir que un nodo sea su propio padre.
+  if (d.id && d.parent_id && d.id === d.parent_id) {
+    return { error: "Un nodo no puede ser su propio padre." };
+  }
 
   const supabase = await createSupabaseServerClient();
 
@@ -88,6 +106,20 @@ export async function guardarServicio(
   ]);
   if (!prov) return { error: "El proveedor no pertenece a este cliente." };
   if (!cat) return { error: "La categoría no pertenece a este cliente." };
+
+  // Validar el padre (si lo hay): debe ser un nodo del tenant y de tipo 'grupo'.
+  if (d.parent_id) {
+    const { data: padre } = await supabase
+      .from("services")
+      .select("id, tipo_nodo")
+      .eq("id", d.parent_id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (!padre) return { error: "El nodo padre no pertenece a este cliente." };
+    if (padre.tipo_nodo !== "grupo") {
+      return { error: "El padre debe ser un grupo (no un servicio vendible)." };
+    }
+  }
 
   const locales = await localesTenant(tenantId);
   const titulo = i18nDesdeForm(formData, "titulo", locales);
@@ -101,23 +133,95 @@ export async function guardarServicio(
     slug: d.slug,
     provider_id: d.provider_id,
     category_id: d.category_id,
-    tipo_pago: d.tipo_pago,
-    precio_desde: parseNum(d.precio_desde),
-    iva_tipo: parseNum(d.iva_tipo),
-    url_redireccion: d.url_redireccion || null,
+    tipo_nodo: d.tipo_nodo,
+    parent_id: d.parent_id || null,
+    estado: d.estado,
+    // Un grupo no tiene modelo de pago ni precio.
+    tipo_pago: esGrupo ? null : (d.tipo_pago || null),
+    precio_desde: esGrupo ? null : parseNum(d.precio_desde),
+    iva_tipo: esGrupo ? null : parseNum(d.iva_tipo),
+    url_redireccion: esGrupo ? null : (d.url_redireccion || null),
     icono: d.icono || null,
+    imagen_url: d.imagen_url || null,
     orden: parseNum(d.orden) ?? 0,
     activo: d.activo === "on" || d.activo === "true",
     titulo_i18n: titulo,
     subtitulo_i18n: subtitulo,
   };
 
+  let serviceId: string;
   if (d.id && d.id !== "") {
-    const { error } = await supabase.from("services").update(fila).eq("id", d.id).eq("tenant_id", tenantId);
+    serviceId = d.id;
+    const { error } = await supabase
+      .from("services")
+      .update(fila)
+      .eq("id", serviceId)
+      .eq("tenant_id", tenantId);
     if (error) return { error: `No se pudo guardar: ${error.message}` };
   } else {
-    const { error } = await supabase.from("services").insert(fila);
-    if (error) return { error: `No se pudo crear: ${error.message}` };
+    const { data: newService, error } = await supabase
+      .from("services")
+      .insert(fila)
+      .select("id")
+      .single();
+    if (error || !newService)
+      return { error: `No se pudo crear: ${error?.message}` };
+    serviceId = newService.id;
+  }
+
+  // Guardar tarifas por tipo de pasajero (solo para servicios integrados)
+  const esIntegrado = !esGrupo && d.tipo_pago === "integrado";
+  const tierCount = parseInt(
+    (formData.get("tier_count") as string | null) ?? "0",
+    10
+  );
+  if (esIntegrado && tierCount >= 0) {
+    // Eliminar tarifas anteriores y re-insertar las actuales
+    await supabase
+      .from("service_price_tiers")
+      .delete()
+      .eq("service_id", serviceId);
+
+    if (tierCount > 0) {
+      const tiersToInsert = [];
+      for (let i = 0; i < tierCount; i++) {
+        const tipo = (formData.get(`tier_tipo_${i}`) as string | null)?.trim();
+        if (!tipo) continue;
+        const labelEs = (
+          formData.get(`tier_label_es_${i}`) as string | null
+        )?.trim();
+        const labelEn = (
+          formData.get(`tier_label_en_${i}`) as string | null
+        )?.trim();
+        const precio = parseNum(
+          formData.get(`tier_precio_${i}`) as string | undefined
+        );
+        const orden = parseInt(
+          (formData.get(`tier_orden_${i}`) as string | null) ?? String(i),
+          10
+        );
+        if (precio === null || precio < 0) continue;
+        const label_i18n: Record<string, string> = {};
+        if (labelEs) label_i18n["es"] = labelEs;
+        if (labelEn) label_i18n["en"] = labelEn;
+        tiersToInsert.push({ service_id: serviceId, tipo, label_i18n, precio, orden });
+      }
+      if (tiersToInsert.length > 0) {
+        const { error: errTiers } = await supabase
+          .from("service_price_tiers")
+          .insert(tiersToInsert);
+        if (errTiers)
+          return {
+            error: `No se pudieron guardar las tarifas: ${errTiers.message}`,
+          };
+      }
+    }
+  } else if (!esIntegrado) {
+    // Si el servicio ya no es integrado, borrar tiers huérfanos
+    await supabase
+      .from("service_price_tiers")
+      .delete()
+      .eq("service_id", serviceId);
   }
 
   revalidateTag(catalogCacheTag(ctx.currentTenant.slug), "max");
@@ -135,6 +239,23 @@ export async function alternarVisibilidadServicio(
   const { error } = await supabase
     .from("services")
     .update({ activo })
+    .eq("id", id)
+    .eq("tenant_id", ctx.currentTenant.id);
+  if (error) throw new Error(error.message);
+  revalidateTag(catalogCacheTag(ctx.currentTenant.slug), "max");
+  revalidatePath("/panel/products");
+}
+
+export async function cambiarEstadoServicio(
+  id: string,
+  estado: "borrador" | "publicado"
+): Promise<void> {
+  const ctx = await requirePanelContext();
+  assertCapacidad(ctx, "catalog.edit");
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("services")
+    .update({ estado })
     .eq("id", id)
     .eq("tenant_id", ctx.currentTenant.id);
   if (error) throw new Error(error.message);

@@ -10,11 +10,10 @@ import {
   type Beneficiario,
   type TipoCalculo,
 } from "./commissions";
-import { cartSchema, type Cart } from "./cart.schema";
+import { cartSchema } from "./cart.schema";
 import { generarReferencia } from "@/lib/vouchers/codigo";
 
-// Importe mínimo cobrable por Stripe (50 céntimos). Por debajo no se puede
-// crear una sesión de pago.
+// Importe mínimo cobrable por Stripe (50 céntimos).
 const IMPORTE_MINIMO = 0.5;
 
 export interface ResultadoCheckout {
@@ -31,12 +30,13 @@ export interface EstadoPedido {
 
 // Crea el pedido y la sesión de pago de Stripe (Embedded Checkout) para un
 // carrito. TODO el cálculo de precios y comisiones ocurre aquí, en el servidor,
-// leyendo de la base de datos: el cliente solo dice qué servicios y cuántos.
+// leyendo de la base de datos: el cliente solo dice qué servicios, cuántos,
+// para qué fecha y qué tipos de pasajero.
 export async function crearCheckoutParaCarrito(
   cartInput: unknown,
   idiomaInput?: string
 ): Promise<ResultadoCheckout> {
-  const cart: Cart = cartSchema.parse(cartInput);
+  const cart = cartSchema.parse(cartInput);
   const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? "prosegur";
 
   const supabase = createSupabaseAdminClient();
@@ -52,24 +52,24 @@ export async function crearCheckoutParaCarrito(
     throw new Error(`Tenant '${tenantSlug}' no encontrado.`);
   }
   const idioma = idiomaInput ?? tenant.locale_default;
-  // IVA por defecto del tenant (respaldo cuando el servicio no define iva_tipo).
   const legalTenant = (tenant.legal_config ?? {}) as Record<string, unknown>;
   const ivaDefault =
     typeof legalTenant.iva_default === "number" ? legalTenant.iva_default : 21;
 
   // 2) Servicios del carrito (deben ser del tenant, activos e integrados)
-  const slugs = cart.items.map((i) => i.service_slug);
+  const slugs = [...new Set(cart.items.map((i) => i.service_slug))];
   const { data: servicios, error: errServ } = await supabase
     .from("services")
-    .select("id, slug, titulo_i18n, precio_desde, moneda, tipo_pago, provider_id, activo, iva_tipo")
+    .select(
+      "id, slug, titulo_i18n, precio_desde, moneda, tipo_pago, provider_id, activo, iva_tipo"
+    )
     .eq("tenant_id", tenant.id)
     .in("slug", slugs);
   if (errServ) {
     throw new Error(`No se pudieron leer los servicios: ${errServ.message}`);
   }
 
-  // Estado de cobros de los proveedores: un servicio integrado solo se puede
-  // pagar si su proveedor ya puede recibir transferencias (Stripe Connect).
+  // Verificar que los proveedores pueden recibir pagos (Stripe Connect activo)
   const providerIdsCarrito = Array.from(
     new Set((servicios ?? []).map((s) => s.provider_id))
   );
@@ -88,12 +88,12 @@ export async function crearCheckoutParaCarrito(
   for (const item of cart.items) {
     const s = porSlug.get(item.service_slug);
     if (!s) throw new Error(`El servicio '${item.service_slug}' no existe.`);
-    if (!s.activo) throw new Error(`El servicio '${item.service_slug}' no está disponible.`);
+    if (!s.activo)
+      throw new Error(`El servicio '${item.service_slug}' no está disponible.`);
     if (s.tipo_pago !== "integrado") {
-      throw new Error(`El servicio '${item.service_slug}' no se paga en el kiosko.`);
-    }
-    if (s.precio_desde === null) {
-      throw new Error(`El servicio '${item.service_slug}' no tiene precio.`);
+      throw new Error(
+        `El servicio '${item.service_slug}' no se paga en el kiosko.`
+      );
     }
     if (!payoutReady.get(s.provider_id)) {
       throw new Error(
@@ -102,11 +102,31 @@ export async function crearCheckoutParaCarrito(
     }
   }
 
-  // 3) Reglas de comisión aplicables (por proveedor o por servicio)
+  // 3) Tarifas por tipo de pasajero (para servicios que las tienen)
+  const serviceIds = (servicios ?? []).map((s) => s.id);
+  const { data: tiersData } = await supabase
+    .from("service_price_tiers")
+    .select("service_id, tipo, label_i18n, precio")
+    .in("service_id", serviceIds)
+    .eq("activo", true);
+
+  // Map: serviceId -> Map<tipo, { precio, label_i18n }>
+  type TierInfo = { precio: number; label_i18n: Record<string, string> };
+  const tiersPorServicio = new Map<string, Map<string, TierInfo>>();
+  for (const t of tiersData ?? []) {
+    if (!tiersPorServicio.has(t.service_id)) {
+      tiersPorServicio.set(t.service_id, new Map());
+    }
+    tiersPorServicio.get(t.service_id)!.set(t.tipo, {
+      precio: Number(t.precio),
+      label_i18n: (t.label_i18n as Record<string, string>) ?? {},
+    });
+  }
+
+  // 4) Reglas de comisión aplicables (por proveedor o por servicio)
   const providerIds = Array.from(
     new Set((servicios ?? []).map((s) => s.provider_id))
   );
-  const serviceIds = (servicios ?? []).map((s) => s.id);
   const { data: reglas, error: errReglas } = await supabase
     .from("commission_rules")
     .select("beneficiario, ambito, tipo_calculo, valor, provider_id, service_id")
@@ -119,7 +139,9 @@ export async function crearCheckoutParaCarrito(
     throw new Error(`No se pudieron leer las comisiones: ${errReglas.message}`);
   }
 
-  // 4) Construir líneas, total y desglose de comisiones (en servidor)
+  // 5) Construir líneas calculadas
+  //    - Servicios con tarifas: una LineaCalculada por tipo de pasajero
+  //    - Servicios simples:     una LineaCalculada con precio_desde × cantidad
   const moneda = (servicios?.[0]?.moneda ?? "EUR").toUpperCase();
   type LineaCalculada = {
     service_id: string;
@@ -129,14 +151,18 @@ export async function crearCheckoutParaCarrito(
     cantidad: number;
     importe: number;
     iva_tipo: number;
+    fecha_servicio: string | null;
+    variant_tipo: string | null;
+    variant_label: string | null;
     comisiones: ReturnType<typeof calcularComisionesLinea>;
   };
 
-  const lineas: LineaCalculada[] = cart.items.map((item) => {
+  const lineas: LineaCalculada[] = [];
+
+  for (const item of cart.items) {
     const s = porSlug.get(item.service_slug)!;
-    const precio_unitario = Number(s.precio_desde);
-    const importe = redondear2(precio_unitario * item.cantidad);
-    const iva_tipo = s.iva_tipo !== null ? Number(s.iva_tipo) : ivaDefault;
+    const iva_tipo =
+      s.iva_tipo !== null ? Number(s.iva_tipo) : ivaDefault;
     const reglasLinea: ReglaComision[] = (reglas ?? [])
       .filter((r) => r.provider_id === s.provider_id || r.service_id === s.id)
       .map((r) => ({
@@ -145,21 +171,83 @@ export async function crearCheckoutParaCarrito(
         tipo_calculo: r.tipo_calculo as TipoCalculo,
         valor: Number(r.valor),
       }));
-    return {
-      service_id: s.id,
-      service_slug: s.slug,
-      titulo: tx(s.titulo_i18n as Localized, idioma),
-      precio_unitario,
-      cantidad: item.cantidad,
-      importe,
-      iva_tipo,
-      comisiones: calcularComisionesLinea({
-        precioUnitario: precio_unitario,
-        cantidad: item.cantidad,
-        reglas: reglasLinea,
-      }),
-    };
-  });
+
+    const tituloBase = tx(s.titulo_i18n as Localized, idioma);
+    const tiers = tiersPorServicio.get(s.id);
+    const fecha = item.fecha ?? null;
+
+    if (item.pasajeros && tiers && tiers.size > 0) {
+      // Servicio con tarifas variables: una línea por tipo de pasajero
+      for (const pax of item.pasajeros) {
+        if (pax.cantidad <= 0) continue;
+        const tierInfo = tiers.get(pax.tipo);
+        if (!tierInfo) {
+          throw new Error(
+            `El tipo de pasajero '${pax.tipo}' no existe para '${item.service_slug}'.`
+          );
+        }
+        const precio_unitario = tierInfo.precio;
+        const labelPax =
+          tierInfo.label_i18n[idioma] ??
+          tierInfo.label_i18n["es"] ??
+          pax.tipo;
+        const importe = redondear2(precio_unitario * pax.cantidad);
+        lineas.push({
+          service_id: s.id,
+          service_slug: s.slug,
+          titulo: `${tituloBase} – ${labelPax}`,
+          precio_unitario,
+          cantidad: pax.cantidad,
+          importe,
+          iva_tipo,
+          fecha_servicio: fecha,
+          variant_tipo: pax.tipo,
+          variant_label: labelPax,
+          comisiones: calcularComisionesLinea({
+            precioUnitario: precio_unitario,
+            cantidad: pax.cantidad,
+            reglas: reglasLinea,
+          }),
+        });
+      }
+    } else {
+      // Servicio de precio único (sin tarifas variables)
+      const cantidad = item.cantidad;
+      if (!cantidad || cantidad <= 0) {
+        throw new Error(
+          `El servicio '${item.service_slug}' necesita una cantidad.`
+        );
+      }
+      if (s.precio_desde === null) {
+        throw new Error(
+          `El servicio '${item.service_slug}' no tiene precio configurado.`
+        );
+      }
+      const precio_unitario = Number(s.precio_desde);
+      const importe = redondear2(precio_unitario * cantidad);
+      lineas.push({
+        service_id: s.id,
+        service_slug: s.slug,
+        titulo: tituloBase,
+        precio_unitario,
+        cantidad,
+        importe,
+        iva_tipo,
+        fecha_servicio: fecha,
+        variant_tipo: null,
+        variant_label: null,
+        comisiones: calcularComisionesLinea({
+          precioUnitario: precio_unitario,
+          cantidad,
+          reglas: reglasLinea,
+        }),
+      });
+    }
+  }
+
+  if (lineas.length === 0) {
+    throw new Error("El carrito no contiene líneas válidas.");
+  }
 
   const importeTotal = redondear2(
     lineas.reduce((acc, l) => acc + l.importe, 0)
@@ -170,7 +258,7 @@ export async function crearCheckoutParaCarrito(
     );
   }
 
-  // 5) Crear el pedido (pending) + líneas + comisiones
+  // 6) Crear el pedido (pending) + líneas + comisiones
   const { data: pedido, error: errPedido } = await supabase
     .from("orders")
     .insert({
@@ -199,27 +287,36 @@ export async function crearCheckoutParaCarrito(
         cantidad: l.cantidad,
         importe: l.importe,
         iva_tipo: l.iva_tipo,
+        fecha_servicio: l.fecha_servicio,
+        variant_tipo: l.variant_tipo,
+        variant_label: l.variant_label,
       })
       .select("id")
       .single();
     if (errItem || !itemRow) {
-      throw new Error(`No se pudo crear la línea del pedido: ${errItem?.message}`);
+      throw new Error(
+        `No se pudo crear la línea del pedido: ${errItem?.message}`
+      );
     }
-    const { error: errCom } = await supabase.from("order_commissions").insert(
-      l.comisiones.map((c) => ({
-        order_item_id: itemRow.id,
-        beneficiario: c.beneficiario,
-        tipo_calculo: c.tipo_calculo,
-        valor: c.valor,
-        importe: c.importe,
-      }))
-    );
+    const { error: errCom } = await supabase
+      .from("order_commissions")
+      .insert(
+        l.comisiones.map((c) => ({
+          order_item_id: itemRow.id,
+          beneficiario: c.beneficiario,
+          tipo_calculo: c.tipo_calculo,
+          valor: c.valor,
+          importe: c.importe,
+        }))
+      );
     if (errCom) {
-      throw new Error(`No se pudieron registrar las comisiones: ${errCom.message}`);
+      throw new Error(
+        `No se pudieron registrar las comisiones: ${errCom.message}`
+      );
     }
   }
 
-  // 6) Crear la sesión de pago de Stripe (Embedded Checkout, sin redirección)
+  // 7) Crear la sesión de pago de Stripe (Embedded Checkout)
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.create({
     ui_mode: "embedded_page",
@@ -233,7 +330,6 @@ export async function crearCheckoutParaCarrito(
         product_data: { name: l.titulo },
       },
     })),
-    // Enlaza el cobro con las transferencias posteriores a cada proveedor.
     payment_intent_data: { transfer_group: pedido.id },
     metadata: { order_id: pedido.id },
   });
@@ -242,7 +338,6 @@ export async function crearCheckoutParaCarrito(
     throw new Error("Stripe no devolvió client_secret para el checkout.");
   }
 
-  // 7) Guardar el id de sesión en el pedido (para confirmar y reconciliar)
   const { error: errUpd } = await supabase
     .from("orders")
     .update({ stripe_checkout_session_id: session.id })
@@ -255,7 +350,6 @@ export async function crearCheckoutParaCarrito(
 }
 
 // Devuelve el estado del pedido a partir del id de sesión de Stripe.
-// Usa la RPC pública mínima get_order_status (no expone datos sensibles).
 export async function obtenerEstadoPedido(
   sessionId: string
 ): Promise<EstadoPedido | null> {
@@ -264,7 +358,9 @@ export async function obtenerEstadoPedido(
     p_session_id: sessionId,
   });
   if (error) {
-    throw new Error(`No se pudo consultar el estado del pedido: ${error.message}`);
+    throw new Error(
+      `No se pudo consultar el estado del pedido: ${error.message}`
+    );
   }
   if (!data || typeof data !== "object") return null;
   const obj = data as Record<string, unknown>;

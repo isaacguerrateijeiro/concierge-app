@@ -22,6 +22,15 @@ export interface ProveedorMini {
   color_marca: string | null;
 }
 
+export interface PriceTierPanel {
+  id: string;
+  tipo: string;
+  label_i18n: I18n;
+  precio: number;
+  orden: number;
+  activo: boolean;
+}
+
 export interface ServicioPanel {
   id: string;
   slug: string;
@@ -30,7 +39,12 @@ export interface ServicioPanel {
   precio_desde: number | null;
   iva_tipo: number | null;
   moneda: string;
-  tipo_pago: string;
+  tipo_pago: string | null;
+  tipo_nodo: "grupo" | "servicio";
+  estado: "borrador" | "publicado";
+  parent_id: string | null;
+  imagen_url: string | null;
+  fuente_ref: string | null;
   url_redireccion: string | null;
   icono: string | null;
   activo: boolean;
@@ -40,6 +54,13 @@ export interface ServicioPanel {
   categoriaNombre: string;
   proveedorNombre: string;
   proveedorColor: string | null;
+  tiers: PriceTierPanel[];
+}
+
+// Nodo del árbol de servicios para el panel (con profundidad para sangría).
+export interface ServicioNodo extends ServicioPanel {
+  children: ServicioNodo[];
+  depth: number;
 }
 
 function num(v: number | string | null | undefined): number | null {
@@ -109,7 +130,12 @@ interface ServicioRow {
   precio_desde: number | string | null;
   iva_tipo: number | string | null;
   moneda: string;
-  tipo_pago: string;
+  tipo_pago: string | null;
+  tipo_nodo: string;
+  estado: string;
+  parent_id: string | null;
+  imagen_url: string | null;
+  fuente_ref: string | null;
   url_redireccion: string | null;
   icono: string | null;
   activo: boolean;
@@ -120,21 +146,11 @@ interface ServicioRow {
   providers: { nombre: string; color_marca: string | null } | null;
 }
 
-export async function listarServicios(
-  tenantId: string,
-  localeDefault = "es"
-): Promise<ServicioPanel[]> {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("services")
-    .select(
-      "id, slug, titulo_i18n, subtitulo_i18n, precio_desde, iva_tipo, moneda, tipo_pago, url_redireccion, icono, activo, orden, category_id, provider_id, categories(nombre_i18n), providers(nombre, color_marca)"
-    )
-    .eq("tenant_id", tenantId)
-    .order("orden", { ascending: true });
-  if (error) throw new Error(`listarServicios: ${error.message}`);
+const SERVICE_COLS =
+  "id, slug, titulo_i18n, subtitulo_i18n, precio_desde, iva_tipo, moneda, tipo_pago, tipo_nodo, estado, parent_id, imagen_url, fuente_ref, url_redireccion, icono, activo, orden, category_id, provider_id, categories(nombre_i18n), providers(nombre, color_marca)";
 
-  return ((data as unknown as ServicioRow[]) ?? []).map((s) => ({
+function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
+  return {
     id: s.id,
     slug: s.slug,
     titulo_i18n: i18n(s.titulo_i18n),
@@ -143,6 +159,11 @@ export async function listarServicios(
     iva_tipo: num(s.iva_tipo),
     moneda: s.moneda,
     tipo_pago: s.tipo_pago,
+    tipo_nodo: s.tipo_nodo === "grupo" ? "grupo" : "servicio",
+    estado: s.estado === "borrador" ? "borrador" : "publicado",
+    parent_id: s.parent_id,
+    imagen_url: s.imagen_url,
+    fuente_ref: s.fuente_ref,
     url_redireccion: s.url_redireccion,
     icono: s.icono,
     activo: s.activo,
@@ -152,7 +173,83 @@ export async function listarServicios(
     categoriaNombre: loc(i18n(s.categories?.nombre_i18n), localeDefault),
     proveedorNombre: s.providers?.nombre ?? "—",
     proveedorColor: s.providers?.color_marca ?? null,
-  }));
+    tiers: [],
+  };
+}
+
+export async function listarServicios(
+  tenantId: string,
+  localeDefault = "es"
+): Promise<ServicioPanel[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("services")
+    .select(SERVICE_COLS)
+    .eq("tenant_id", tenantId)
+    .order("orden", { ascending: true });
+  if (error) throw new Error(`listarServicios: ${error.message}`);
+
+  const servicios = ((data as unknown as ServicioRow[]) ?? []).map((s) =>
+    mapServicio(s, localeDefault)
+  );
+
+  // Cargar tarifas por tipo de pasajero para todos los servicios del tenant.
+  if (servicios.length > 0) {
+    const ids = servicios.map((s) => s.id);
+    const { data: tiersData } = await supabase
+      .from("service_price_tiers")
+      .select("id, service_id, tipo, label_i18n, precio, orden, activo")
+      .in("service_id", ids)
+      .order("orden", { ascending: true });
+
+    if (tiersData) {
+      const tierMap = new Map<string, PriceTierPanel[]>();
+      for (const t of tiersData) {
+        if (!tierMap.has(t.service_id)) tierMap.set(t.service_id, []);
+        tierMap.get(t.service_id)!.push({
+          id: t.id,
+          tipo: t.tipo,
+          label_i18n: i18n(t.label_i18n),
+          precio: num(t.precio) ?? 0,
+          orden: t.orden,
+          activo: t.activo,
+        });
+      }
+      for (const s of servicios) {
+        s.tiers = tierMap.get(s.id) ?? [];
+      }
+    }
+  }
+
+  return servicios;
+}
+
+// Devuelve los servicios como árbol con profundidad, ordenados por categoría y
+// orden, listo para pintar con sangría en el panel.
+export function arbolServicios(servicios: ServicioPanel[]): ServicioNodo[] {
+  const porId = new Map<string, ServicioNodo>();
+  for (const s of servicios) porId.set(s.id, { ...s, children: [], depth: 0 });
+
+  const raices: ServicioNodo[] = [];
+  for (const node of porId.values()) {
+    if (node.parent_id && porId.has(node.parent_id)) {
+      porId.get(node.parent_id)!.children.push(node);
+    } else {
+      raices.push(node);
+    }
+  }
+
+  const flat: ServicioNodo[] = [];
+  const visitar = (nodos: ServicioNodo[], depth: number) => {
+    nodos.sort((a, b) => a.orden - b.orden);
+    for (const n of nodos) {
+      n.depth = depth;
+      flat.push(n);
+      visitar(n.children, depth + 1);
+    }
+  };
+  visitar(raices, 0);
+  return flat;
 }
 
 export async function getServicio(
@@ -161,6 +258,27 @@ export async function getServicio(
 ): Promise<ServicioPanel | null> {
   const servicios = await listarServicios(tenantId);
   return servicios.find((s) => s.id === id) ?? null;
+}
+
+export interface OpcionPadre {
+  id: string;
+  label: string;
+}
+
+// Lista de nodos 'grupo' que pueden actuar como padre, con sangría que refleja
+// su profundidad. Excluye el propio nodo (no puede ser su propio padre).
+export function opcionesPadre(
+  servicios: ServicioPanel[],
+  localeDefault = "es",
+  excluirId?: string
+): OpcionPadre[] {
+  const arbol = arbolServicios(servicios);
+  return arbol
+    .filter((n) => n.tipo_nodo === "grupo" && n.id !== excluirId)
+    .map((n) => ({
+      id: n.id,
+      label: `${"— ".repeat(n.depth)}${loc(n.titulo_i18n, localeDefault) || n.slug}`,
+    }));
 }
 
 export async function getCategoria(

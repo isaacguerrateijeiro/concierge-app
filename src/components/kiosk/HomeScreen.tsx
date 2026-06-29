@@ -2,7 +2,7 @@
 
 import { Lang, INTL_LOCALES } from "./data";
 import { useUiText } from "./uiText";
-import { Catalog, CatalogService, tx } from "@/lib/catalog.schema";
+import { Catalog, CatalogService, buildServiceTree, tx } from "@/lib/catalog.schema";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icon";
 
@@ -85,27 +85,37 @@ function CategoryHeader({
   );
 }
 
-function ServiceTile({
+export function ServiceTile({
   service,
   lang,
   onClick,
   delay = 0,
   big = false,
+  childCount,
 }: {
   service: CatalogService;
   lang: Lang;
   onClick?: () => void;
   delay?: number;
   big?: boolean;
+  childCount?: number;
 }) {
   const t = useUiText();
+  const esGrupo = service.tipo_nodo === "grupo";
   const free = service.precio_desde === 0;
   const titulo = tx(service.titulo_i18n, lang);
+  const subtitulo = tx(service.subtitulo_i18n, lang);
   // En tiles grandes mostramos la parte tras "·"; en pequeños, el proveedor.
   const tituloCorto = titulo.split("·").slice(-1)[0].trim();
+  const tieneFoto = !!service.imagen_url;
 
   let etiquetaPrecio: string;
-  if (service.precio_desde === null) {
+  if (esGrupo) {
+    etiquetaPrecio =
+      childCount && childCount > 0
+        ? `${childCount} ${t(lang, "options")}`
+        : t(lang, "seeOptions").toUpperCase();
+  } else if (service.precio_desde === null) {
     etiquetaPrecio = t(lang, "view").toUpperCase();
   } else if (free) {
     etiquetaPrecio = t(lang, "free").toUpperCase();
@@ -130,20 +140,59 @@ function ServiceTile({
         cursor: "pointer",
       }}
     >
-      {/* Bloque de color de marca */}
-      <div
-        style={{
-          background: service.proveedor.color_marca ?? "var(--ink)",
-          padding: big ? "30px 24px 24px" : "20px 16px 16px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: big ? 190 : 118,
-          flexShrink: 0,
-        }}
-      >
-        <BrandLogo id={service.proveedor.slug} w={big ? 230 : 150} h={big ? 88 : 56} />
-      </div>
+      {/* Bloque superior: foto real del producto si la hay; si no, marca. */}
+      {tieneFoto ? (
+        <div
+          style={{
+            position: "relative",
+            minHeight: big ? 210 : 138,
+            height: big ? 210 : 138,
+            flexShrink: 0,
+            overflow: "hidden",
+            background: "var(--bone-2)",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={service.imagen_url!}
+            alt={titulo}
+            loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              left: 12,
+              padding: "5px 11px",
+              background: "rgba(22,20,15,0.78)",
+              backdropFilter: "blur(4px)",
+              borderRadius: 999,
+              fontFamily: "var(--mono)",
+              fontSize: big ? 10 : 9,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "#fff",
+            }}
+          >
+            {service.proveedor.nombre}
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: service.proveedor.color_marca ?? "var(--ink)",
+            padding: big ? "30px 24px 24px" : "20px 16px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: big ? 190 : 118,
+            flexShrink: 0,
+          }}
+        >
+          <BrandLogo id={service.proveedor.slug} w={big ? 230 : 150} h={big ? 88 : 56} />
+        </div>
+      )}
 
       {/* Bloque de información */}
       <div
@@ -154,39 +203,45 @@ function ServiceTile({
           flexDirection: "column",
         }}
       >
-        <div
-          style={{
-            fontFamily: "var(--mono)",
-            fontSize: big ? 10 : 9,
-            letterSpacing: "0.22em",
-            textTransform: "uppercase",
-            color: "var(--muted)",
-          }}
-        >
-          {service.proveedor.nombre}
-        </div>
+        {!tieneFoto && (
+          <div
+            style={{
+              fontFamily: "var(--mono)",
+              fontSize: big ? 10 : 9,
+              letterSpacing: "0.22em",
+              textTransform: "uppercase",
+              color: "var(--muted)",
+            }}
+          >
+            {service.proveedor.nombre}
+          </div>
+        )}
         <div
           style={{
             fontFamily: "var(--serif)",
             fontSize: big ? 30 : 20,
             lineHeight: 1.1,
-            marginTop: big ? 8 : 5,
+            marginTop: !tieneFoto && !big ? 5 : tieneFoto ? 2 : 8,
             letterSpacing: "-0.01em",
           }}
         >
-          {big ? tituloCorto : service.proveedor.nombre}
+          {tieneFoto || big ? tituloCorto : service.proveedor.nombre}
         </div>
-        {big && (
+        {(big || tieneFoto) && subtitulo && (
           <div
             style={{
               fontFamily: "var(--sans)",
-              fontSize: 14,
+              fontSize: big ? 14 : 13,
               color: "var(--muted)",
               marginTop: 7,
               lineHeight: 1.4,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
             }}
           >
-            {tx(service.subtitulo_i18n, lang)}
+            {subtitulo}
           </div>
         )}
         <div style={{ flex: 1 }} />
@@ -297,11 +352,13 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
         </div>
       </div>
 
-      {/* Una sección por categoría */}
+      {/* Una sección por categoría. Solo nodos de nivel superior (los grupos
+          despliegan sus hijos al pulsarlos, en una pantalla de navegación). */}
       {categories.map((cat, ci) => {
-        const servicios = catalog.services
-          .filter((s) => s.categoria === cat.slug)
-          .sort((a, b) => a.orden - b.orden);
+        // Solo nodos de nivel superior de la categoría (los grupos despliegan
+        // sus hijos al pulsarlos). Usamos el árbol para conocer el nº de hijos.
+        const servicios = buildServiceTree(catalog.services, cat.slug);
+        if (servicios.length === 0) return null;
 
         // Heurística que reproduce el diseño: más de 4 servicios -> 3 columnas,
         // si no, 2. Los primeros (= nº de columnas) van como tiles grandes.
@@ -334,6 +391,7 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
                   onClick={() => onSelect?.(s)}
                   delay={i * 0.06}
                   big
+                  childCount={s.children.length}
                 />
               ))}
             </div>
@@ -353,6 +411,7 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
                     lang={lang}
                     onClick={() => onSelect?.(s)}
                     delay={0.18 + i * 0.05}
+                    childCount={s.children.length}
                   />
                 ))}
               </div>

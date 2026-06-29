@@ -4,7 +4,8 @@ import {
   listarProveedores,
   listarCategorias,
   getLocalesTenant,
-  getServicio,
+  listarServicios,
+  opcionesPadre,
 } from "@/lib/panel/catalog";
 import { ServiceForm } from "../ServiceForm";
 
@@ -19,13 +20,14 @@ export default async function EditarServicioPage({
   assertCapacidad(ctx, "catalog.edit");
   const { id } = await params;
 
-  const [servicio, proveedores, categorias, locales] = await Promise.all([
-    getServicio(ctx.currentTenant.id, id),
+  const [proveedores, categorias, locales, servicios] = await Promise.all([
     listarProveedores(ctx.currentTenant.id),
     listarCategorias(ctx.currentTenant.id),
     getLocalesTenant(ctx.currentTenant.id),
+    listarServicios(ctx.currentTenant.id),
   ]);
 
+  const servicio = servicios.find((s) => s.id === id) ?? null;
   if (!servicio) notFound();
 
   return (
@@ -33,6 +35,7 @@ export default async function EditarServicioPage({
       servicio={servicio}
       proveedores={proveedores}
       categorias={categorias}
+      padres={opcionesPadre(servicios, locales[0], id)}
       locales={locales}
     />
   );

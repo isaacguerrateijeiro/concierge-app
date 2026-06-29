@@ -80,17 +80,35 @@ export const catalogProviderSchema = z.object({
   logo: z.string().nullable(),
 });
 
+// Tarifa por tipo de pasajero (adulto, niño, senior…).
+export const priceTierSchema = z.object({
+  tipo: z.string(),
+  label_i18n: localizedSchema,
+  precio: z.number(),
+  orden: z.number().default(0),
+});
+
 export const catalogServiceSchema = z.object({
   slug: z.string(),
   titulo_i18n: localizedSchema,
   subtitulo_i18n: localizedSchema,
-  tipo_pago: z.enum(["integrado", "derivado"]),
+  // Etiqueta de duración por idioma: {"es":"Medio día","en":"Half day"}.
+  duracion_i18n: localizedSchema.default({}),
+  // Un 'grupo' no tiene modelo de pago (no se vende); un 'servicio' sí.
+  tipo_pago: z.enum(["integrado", "derivado"]).nullable().default(null),
+  // Tipo de nodo del árbol del catálogo.
+  tipo_nodo: z.enum(["grupo", "servicio"]).default("servicio"),
+  // Slug del nodo padre (null = nivel superior dentro de su categoría).
+  parent: z.string().nullable().default(null),
   precio_desde: z.number().nullable(),
   moneda: z.string(),
   url_redireccion: z.string().nullable(),
   icono: z.string().nullable(),
+  imagen_url: z.string().nullable().default(null),
   orden: z.number(),
   categoria: z.string(),
+  // Tarifas por tipo de pasajero. Vacío para servicios de precio único.
+  price_tiers: z.array(priceTierSchema).default([]),
   proveedor: catalogProviderSchema,
 });
 
@@ -107,6 +125,7 @@ export type CatalogTenant = z.infer<typeof catalogTenantSchema>;
 export type CatalogLocation = z.infer<typeof catalogLocationSchema>;
 export type CatalogCategory = z.infer<typeof catalogCategorySchema>;
 export type CatalogProvider = z.infer<typeof catalogProviderSchema>;
+export type PriceTier = z.infer<typeof priceTierSchema>;
 export type CatalogService = z.infer<typeof catalogServiceSchema>;
 export type Catalog = z.infer<typeof catalogSchema>;
 
@@ -115,4 +134,39 @@ export type Catalog = z.infer<typeof catalogSchema>;
 export function tx(value: Localized | null | undefined, lang: string): string {
   if (!value) return "";
   return value[lang] ?? Object.values(value)[0] ?? "";
+}
+
+// Nodo del catálogo con sus hijos resueltos (árbol). Deriva de CatalogService.
+export interface CatalogServiceNode extends CatalogService {
+  children: CatalogServiceNode[];
+}
+
+// Construye el árbol de servicios a partir de la lista plana usando `parent`
+// (slug del padre). Devuelve los nodos de nivel superior de una categoría,
+// ya ordenados. Es una utilidad pura (cliente y servidor).
+export function buildServiceTree(
+  services: CatalogService[],
+  categoriaSlug?: string
+): CatalogServiceNode[] {
+  const porSlug = new Map<string, CatalogServiceNode>();
+  for (const s of services) porSlug.set(s.slug, { ...s, children: [] });
+
+  const raices: CatalogServiceNode[] = [];
+  for (const node of porSlug.values()) {
+    if (node.parent && porSlug.has(node.parent)) {
+      porSlug.get(node.parent)!.children.push(node);
+    } else {
+      raices.push(node);
+    }
+  }
+
+  const ordenar = (arr: CatalogServiceNode[]) => {
+    arr.sort((a, b) => a.orden - b.orden);
+    for (const n of arr) ordenar(n.children);
+  };
+  ordenar(raices);
+
+  return categoriaSlug
+    ? raices.filter((n) => n.categoria === categoriaSlug)
+    : raices;
 }
