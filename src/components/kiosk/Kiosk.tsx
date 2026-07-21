@@ -14,6 +14,7 @@ import { UiTextProvider } from "./uiText";
 import { Catalog, CatalogService } from "@/lib/catalog.schema";
 import type { CartLineItem, Cart } from "@/lib/payments/cart.schema";
 import { trackEvent } from "@/lib/kiosk/track";
+import { localizarKiosko, resolverLocationId } from "@/lib/kiosk/location";
 
 const KIOSK_W = 1080;
 const KIOSK_H = 1920;
@@ -40,6 +41,21 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
   const [detailSlug, setDetailSlug] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const analyticsRef = useRef<string | null>(null);
+  // Identidad del kiosko físico: URL (?kiosk=) → localStorage → env.
+  // Se fija una vez en el cliente (SSR no tiene window).
+  // locationId = identidad configurada del dispositivo (env/URL/localStorage).
+  // kioskoDisplay = para la UI (si no hay identidad, cae al primero del catálogo).
+  // Nunca atribuimos pedidos al "primer location" por defecto: solo si hay id
+  // configurado y coincide con un kiosko activo del tenant.
+  const [locationId] = useState<string | null>(() => resolverLocationId());
+  const kioskoConfigurado = useMemo(
+    () => (locationId ? locations.find((l) => l.id === locationId) ?? null : null),
+    [locations, locationId]
+  );
+  const kioskoDisplay = useMemo(
+    () => localizarKiosko(locations, locationId),
+    [locations, locationId]
+  );
 
   const track = useMemo(
     () =>
@@ -48,8 +64,15 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
         id: string,
         payload?: Record<string, unknown>
       ) =>
-        trackEvent({ tenantSlug: tenant.slug, sessionId: id, tipo, locale: lang, payload }),
-    [tenant.slug, lang]
+        trackEvent({
+          tenantSlug: tenant.slug,
+          sessionId: id,
+          tipo,
+          locale: lang,
+          locationId: kioskoConfigurado?.id ?? null,
+          payload,
+        }),
+    [tenant.slug, lang, kioskoConfigurado?.id]
   );
 
   useEffect(() => {
@@ -61,7 +84,7 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
-  const locationName = locations[0]?.nombre ?? tenant.nombre;
+  const locationName = kioskoDisplay?.nombre ?? tenant.nombre;
   const tenantInitial = (tenant.branding?.mark ?? tenant.nombre.charAt(0)).toUpperCase();
   const partners = Array.from(new Set(services.map((s) => s.proveedor.nombre)));
 
@@ -113,7 +136,7 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
   const moneda =
     cartLines[0]?.service.moneda ?? services[0]?.moneda ?? "EUR";
 
-  // Payload para el servidor (solo qué + cuánto, sin precios)
+  // Payload para el servidor (solo qué + cuánto + kiosko, sin precios)
   const cartPayload: Cart = useMemo(
     () => ({
       items: cart.map((item) => ({
@@ -122,8 +145,9 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
         ...(item.pasajeros ? { pasajeros: item.pasajeros } : {}),
         ...(item.cantidad !== undefined ? { cantidad: item.cantidad } : {}),
       })),
+      ...(kioskoConfigurado?.id ? { location_id: kioskoConfigurado.id } : {}),
     }),
-    [cart]
+    [cart, kioskoConfigurado]
   );
 
   const colors = tenant.branding?.colors ?? {};

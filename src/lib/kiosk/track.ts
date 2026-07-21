@@ -16,12 +16,27 @@ export interface TrackArgs {
   sessionId: string;
   tipo: EventoKiosko;
   locale?: string;
+  locationId?: string | null;
   payload?: Record<string, unknown>;
 }
 
-export function trackEvent({ tenantSlug, sessionId, tipo, locale, payload }: TrackArgs): void {
+export function trackEvent({
+  tenantSlug,
+  sessionId,
+  tipo,
+  locale,
+  locationId,
+  payload,
+}: TrackArgs): void {
   try {
-    const body = JSON.stringify({ tenantSlug, sessionId, tipo, locale, payload });
+    const body = JSON.stringify({
+      tenantSlug,
+      sessionId,
+      tipo,
+      locale,
+      locationId: locationId ?? undefined,
+      payload,
+    });
     fetch("/api/track", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

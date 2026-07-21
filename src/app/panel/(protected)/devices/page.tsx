@@ -13,7 +13,17 @@ export default async function DevicesPage() {
   ]);
   const puedeEditar = puedeCapacidad(ctx, "devices.manage");
 
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
+    /\/$/,
+    ""
+  );
+
   return (
-    <KioskManager kioskos={kioskos} locales={tenant.locales} puedeEditar={puedeEditar} />
+    <KioskManager
+      kioskos={kioskos}
+      locales={tenant.locales}
+      puedeEditar={puedeEditar}
+      appUrl={appUrl}
+    />
   );
 }

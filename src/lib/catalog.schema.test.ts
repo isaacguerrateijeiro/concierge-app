@@ -10,7 +10,14 @@ const validCatalog = {
     locales: ["es", "en"],
     locale_default: "es",
   },
-  locations: [{ nombre: "Recepción", tipo_i18n: { es: "Vestíbulo" }, orden: 1 }],
+  locations: [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      nombre: "Recepción",
+      tipo_i18n: { es: "Vestíbulo" },
+      orden: 1,
+    },
+  ],
   categories: [
     {
       slug: "live",

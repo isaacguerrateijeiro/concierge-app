@@ -1287,6 +1287,7 @@ export type Database = {
       track_kiosk_event: {
         Args: {
           p_locale?: string
+          p_location_id?: string
           p_payload?: Json
           p_session: string
           p_tenant_slug: string

@@ -61,6 +61,8 @@ export const catalogTenantSchema = z.object({
 });
 
 export const catalogLocationSchema = z.object({
+  // UUID de public.locations: identifica el kiosko físico en pedidos/analítica.
+  id: z.string().uuid(),
   nombre: z.string(),
   tipo_i18n: localizedSchema,
   orden: z.number(),

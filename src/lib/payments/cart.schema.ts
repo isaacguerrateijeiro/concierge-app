@@ -33,6 +33,9 @@ export const cartLineItemSchema = z
 
 export const cartSchema = z.object({
   items: z.array(cartLineItemSchema).min(1).max(50),
+  // Kiosko físico (locations.id) desde el que se compra. Opcional en el
+  // esquema para no romper clientes antiguos; el servidor lo valida si llega.
+  location_id: z.string().uuid().optional(),
 });
 
 export type Pasajero = z.infer<typeof pasajeroSchema>;

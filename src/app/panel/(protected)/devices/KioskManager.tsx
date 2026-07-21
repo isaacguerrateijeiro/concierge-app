@@ -17,17 +17,47 @@ const NOMBRE_IDIOMA: Record<string, string> = {
 };
 const nombreIdioma = (c: string) => NOMBRE_IDIOMA[c] ?? c.toUpperCase();
 
-function Row({ k, puedeEditar, onEdit, ahora }: { k: Kiosko; puedeEditar: boolean; onEdit: (k: Kiosko) => void; ahora: number }) {
+function Row({
+  k,
+  puedeEditar,
+  onEdit,
+  ahora,
+  appUrl,
+}: {
+  k: Kiosko;
+  puedeEditar: boolean;
+  onEdit: (k: Kiosko) => void;
+  ahora: number;
+  appUrl: string;
+}) {
   const [, togAction, togPending] = useActionState(alternarKiosko, initial);
   const [delState, delAction, delPending] = useActionState(eliminarKiosko, initial);
+  const [copiado, setCopiado] = useState(false);
 
   const activoReciente = k.ultimoPedido && ahora - new Date(k.ultimoPedido).getTime() < 86400000;
   const estado = !k.activo ? "offline" : activoReciente ? "online" : "idle";
   const estadoLabel = !k.activo ? "Inactivo" : activoReciente ? "Activo hoy" : "En reposo";
+  const urlKiosko = `${appUrl}/?kiosk=${k.id}`;
+
+  async function copiarUrl() {
+    try {
+      await navigator.clipboard.writeText(urlKiosko);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1800);
+    } catch {
+      // Fallback: seleccionamos el texto del input oculto no es necesario;
+      // el operador puede copiar el ID a mano.
+    }
+  }
 
   return (
     <tr>
-      <td className="td-strong">{k.nombre}</td>
+      <td>
+        <div className="td-strong">{k.nombre}</div>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3, fontFamily: "var(--mono, monospace)" }}>
+          {k.id}
+        </div>
+      </td>
       <td>{k.tipoI18n.es ?? Object.values(k.tipoI18n)[0] ?? "—"}</td>
       <td>
         <span className="device-status">
@@ -37,6 +67,11 @@ function Row({ k, puedeEditar, onEdit, ahora }: { k: Kiosko; puedeEditar: boolea
       <td className="mono">{k.pedidos}</td>
       <td style={{ color: "var(--muted)", fontSize: 12.5 }}>
         {k.ultimoPedido ? fmtFechaHora(k.ultimoPedido) : "—"}
+      </td>
+      <td>
+        <button type="button" className="mini-btn" onClick={copiarUrl} title={urlKiosko}>
+          {copiado ? "URL copiada" : "Copiar URL"}
+        </button>
       </td>
       {puedeEditar && (
         <td>
@@ -65,10 +100,12 @@ export function KioskManager({
   kioskos,
   locales,
   puedeEditar,
+  appUrl,
 }: {
   kioskos: Kiosko[];
   locales: string[];
   puedeEditar: boolean;
+  appUrl: string;
 }) {
   const [state, action, pending] = useActionState(guardarKiosko, initial);
   const [editando, setEditando] = useState<Kiosko | null>(null);
@@ -87,6 +124,11 @@ export function KioskManager({
 
   return (
     <div style={{ display: "grid", gap: 22 }}>
+      <p style={{ margin: 0, fontSize: 13.5, color: "var(--muted)", lineHeight: 1.45, maxWidth: 720 }}>
+        Cada localización tiene un kiosko con un ID único. En el navegador del
+        tótem abre una vez su URL (<code style={{ fontSize: 12 }}>?kiosk=&lt;id&gt;</code>);
+        queda guardada en el dispositivo y los pedidos saldrán atribuidos a ese kiosko.
+      </p>
       {puedeEditar && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button className="btn btn-accent" onClick={abrirNuevo}>+ Nuevo kiosko</button>
@@ -138,14 +180,24 @@ export function KioskManager({
             <thead>
               <tr>
                 <th>Kiosko</th><th>Tipo</th><th>Estado</th><th>Pedidos</th><th>Última actividad</th>
+                <th>Configuración</th>
                 {puedeEditar && <th></th>}
               </tr>
             </thead>
             <tbody>
               {kioskos.length === 0 ? (
-                <tr><td colSpan={puedeEditar ? 6 : 5}><div className="empty-note">Aún no hay kioskos. {puedeEditar ? "Crea el primero." : ""}</div></td></tr>
+                <tr><td colSpan={puedeEditar ? 7 : 6}><div className="empty-note">Aún no hay kioskos. {puedeEditar ? "Crea el primero." : ""}</div></td></tr>
               ) : (
-                kioskos.map((k) => <Row key={k.id} k={k} puedeEditar={puedeEditar} onEdit={abrirEdicion} ahora={ahora} />)
+                kioskos.map((k) => (
+                  <Row
+                    key={k.id}
+                    k={k}
+                    puedeEditar={puedeEditar}
+                    onEdit={abrirEdicion}
+                    ahora={ahora}
+                    appUrl={appUrl}
+                  />
+                ))
               )}
             </tbody>
           </table>

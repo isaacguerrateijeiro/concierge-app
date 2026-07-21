@@ -13,6 +13,7 @@ const schema = z.object({
     "view_cart", "checkout_start", "payment_success", "delivery_sent",
   ]),
   locale: z.string().max(10).optional(),
+  locationId: z.string().uuid().optional(),
   payload: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 
-  const { tenantSlug, sessionId, tipo, locale, payload } = parsed.data;
+  const { tenantSlug, sessionId, tipo, locale, locationId, payload } = parsed.data;
   try {
     const supabase = createSupabaseAdminClient();
     await supabase.rpc("track_kiosk_event", {
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
       p_tipo: tipo,
       p_locale: locale ?? undefined,
       p_payload: (payload ?? {}) as never,
+      p_location_id: locationId ?? undefined,
     });
   } catch {
     // Best-effort: si falla el registro, no penalizamos al kiosko.

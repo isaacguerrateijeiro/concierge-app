@@ -318,11 +318,30 @@ export async function crearCheckoutParaCarrito(
     );
   }
 
-  // 6) Crear el pedido (pending) + líneas + comisiones
+  // 6) Validar kiosko (location) del tenant, si el carrito lo indica.
+  // Sin location_id válido el pedido se crea igual (compatibilidad), pero el
+  // panel no podrá atribuirlo a un dispositivo físico.
+  let locationId: string | null = null;
+  if (cart.location_id) {
+    const { data: loc } = await supabase
+      .from("locations")
+      .select("id")
+      .eq("id", cart.location_id)
+      .eq("tenant_id", tenant.id)
+      .eq("activo", true)
+      .maybeSingle();
+    if (!loc) {
+      throw new Error("El kiosko indicado no es válido para este tenant.");
+    }
+    locationId = loc.id;
+  }
+
+  // 7) Crear el pedido (pending) + líneas + comisiones
   const { data: pedido, error: errPedido } = await supabase
     .from("orders")
     .insert({
       tenant_id: tenant.id,
+      location_id: locationId,
       estado: "pending",
       moneda,
       importe_total: importeTotal,
