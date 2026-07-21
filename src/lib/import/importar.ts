@@ -1,6 +1,10 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/database.types";
 import { scrapeFuente, slugify, type FuenteConfig, type ScrapedItem, type TierConfig } from "./scraper";
+
+type DbClient = SupabaseClient<Database>;
 
 export interface ResultadoImportacion {
   estado: "ok" | "parcial" | "error";
@@ -22,7 +26,7 @@ interface ProviderFuente {
 // Resuelve la categoría destino: la indicada en fuente_config.categoria_id (si
 // pertenece al tenant) o, en su defecto, la primera categoría del tenant.
 async function categoriaDestino(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: DbClient,
   tenantId: string,
   categoriaIdCfg: string | undefined
 ): Promise<string | null> {
@@ -47,9 +51,10 @@ async function categoriaDestino(
 
 export async function importarProveedor(
   tenantId: string,
-  providerId: string
+  providerId: string,
+  db?: DbClient
 ): Promise<ResultadoImportacion> {
-  const supabase = await createSupabaseServerClient();
+  const supabase: DbClient = db ?? (await createSupabaseServerClient());
 
   const { data: provRaw } = await supabase
     .from("providers")
@@ -66,11 +71,13 @@ export async function importarProveedor(
     item: cfg.item as string | undefined,
     titulo: cfg.titulo as string | undefined,
     descripcion: cfg.descripcion as string | undefined,
+    punto_encuentro: cfg.punto_encuentro as string | undefined,
     duracion: cfg.duracion as string | undefined,
     precio: cfg.precio as string | undefined,
     imagen: cfg.imagen as string | undefined,
     enlace: cfg.enlace as string | undefined,
     grupo: cfg.grupo as string | undefined,
+    solo_gratuitos: cfg.solo_gratuitos === true,
     tiers_config: Array.isArray(cfg.tiers_config)
       ? (cfg.tiers_config as TierConfig[])
       : undefined,
@@ -154,6 +161,8 @@ export async function importarProveedor(
           .update({
             titulo_i18n: fila.titulo_i18n,
             subtitulo_i18n: fila.subtitulo_i18n,
+            descripcion_i18n: fila.descripcion_i18n,
+            punto_encuentro_i18n: fila.punto_encuentro_i18n,
             duracion_i18n: fila.duracion_i18n,
             precio_desde: fila.precio_desde,
             imagen_url: fila.imagen_url,
@@ -258,6 +267,7 @@ function mapItem(
 ) {
   const texto = (item.descripcion ?? "").trim();
   const sub = texto ? { es: texto.slice(0, 240) } : {};
+  const puntoEnc = (item.punto_encuentro ?? "").trim();
   const duracion = (item.duracion ?? "").trim();
   return {
     tenant_id: ctx.tenantId,
@@ -266,6 +276,8 @@ function mapItem(
     parent_id: ctx.parentId,
     titulo_i18n: { es: item.titulo },
     subtitulo_i18n: sub,
+    descripcion_i18n: texto ? { es: texto } : {},
+    punto_encuentro_i18n: puntoEnc ? { es: puntoEnc } : {},
     duracion_i18n: duracion ? { es: duracion } : {},
     tipo_nodo: "servicio" as const,
     tipo_pago: "derivado" as const,

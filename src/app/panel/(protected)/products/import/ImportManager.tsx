@@ -4,8 +4,10 @@ import { useActionState, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   guardarFuente,
+  guardarIntegracion,
   previsualizarFuente,
   ejecutarImportacion,
+  ejecutarActualizacionMasiva,
   type FuenteFormState,
   type PreviewResultado,
 } from "./actions";
@@ -20,8 +22,52 @@ export function ImportManager({
   fuentes: FuenteProveedor[];
   categorias: { id: string; nombre: string }[];
 }) {
+  const router = useRouter();
+  const [pendingAll, startAll] = useTransition();
+  const [msgAll, setMsgAll] = useState<string | null>(null);
+  const configuradas = fuentes.filter((f) => f.fuente_url).length;
+
+  function actualizarTodo() {
+    setMsgAll(null);
+    startAll(async () => {
+      const r = await ejecutarActualizacionMasiva();
+      if (r.error) {
+        setMsgAll(r.error);
+      } else {
+        const t = r.totales;
+        setMsgAll(
+          `Actualización completada en ${r.proveedores.length} proveedor(es): ` +
+            `${t.creados} creados, ${t.actualizados} actualizados, ${t.errores} con error ` +
+            `(detectados ${t.detectados}).`
+        );
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      <div
+        className="table-wrap"
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", flexWrap: "wrap" }}
+      >
+        <div>
+          <div style={{ fontWeight: 700 }}>Actualización masiva del catálogo</div>
+          <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 2 }}>
+            Re-escanea todas las fuentes configuradas ({configuradas}) y actualiza los productos.
+            También se ejecuta cada noche de forma automática.
+          </div>
+          {msgAll && <div className="ok-note" style={{ marginTop: 10 }}>{msgAll}</div>}
+        </div>
+        <button
+          type="button"
+          className="btn btn-accent btn-sm"
+          onClick={actualizarTodo}
+          disabled={pendingAll || configuradas === 0}
+        >
+          {pendingAll ? "Actualizando…" : "Actualizar todo"}
+        </button>
+      </div>
       {fuentes.map((f) => (
         <FuenteCard key={f.id} fuente={f} categorias={categorias} />
       ))}
@@ -38,6 +84,7 @@ function FuenteCard({
 }) {
   const router = useRouter();
   const [state, formAction, saving] = useActionState(guardarFuente, initial);
+  const [intgState, intgAction, savingIntg] = useActionState(guardarIntegracion, initial);
   const [avanzado, setAvanzado] = useState(false);
   const [preview, setPreview] = useState<PreviewResultado | null>(null);
   const [pendingPrev, startPrev] = useTransition();
@@ -45,6 +92,10 @@ function FuenteCard({
   const [msg, setMsg] = useState<string | null>(null);
 
   const cfg = fuente.fuente_config ?? {};
+  const intg = fuente.integracion_config ?? {};
+  const [intgTipo, setIntgTipo] = useState<string>(
+    (intg.tipo as string) ?? "local"
+  );
   const ultima = fuente.ultimaImportacion;
 
   function previsualizar() {
@@ -163,6 +214,28 @@ function FuenteCard({
                   <input className="input" name="grupo" defaultValue={(cfg.grupo as string) ?? ""} placeholder=".category" />
                 </div>
               </div>
+              <div className="field-row">
+                <div className="field">
+                  <label>Descripción</label>
+                  <input className="input" name="descripcion" defaultValue={(cfg.descripcion as string) ?? ""} placeholder=".card-text" />
+                </div>
+                <div className="field">
+                  <label>Duración</label>
+                  <input className="input" name="duracion" defaultValue={(cfg.duracion as string) ?? ""} placeholder=".duration" />
+                </div>
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label>Punto de encuentro</label>
+                  <input className="input" name="punto_encuentro" defaultValue={(cfg.punto_encuentro as string) ?? ""} placeholder=".meeting-point" />
+                </div>
+                <div className="field">
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 26 }}>
+                    <input type="checkbox" name="solo_gratuitos" defaultChecked={cfg.solo_gratuitos === true} />
+                    Solo importar gratuitos (free tours)
+                  </label>
+                </div>
+              </div>
             </>
           )}
 
@@ -187,6 +260,65 @@ function FuenteCard({
               {pendingImp ? "Importando…" : "Importar a borradores"}
             </button>
           </div>
+        </form>
+
+        {/* Integración de disponibilidad y reserva del proveedor */}
+        <form action={intgAction} style={{ marginTop: 20, paddingTop: 18, borderTop: "1px solid var(--line)" }}>
+          <input type="hidden" name="provider_id" value={fuente.id} />
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12.5, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 12 }}>
+            Integración de reserva y stock
+          </div>
+          {intgState.error && <div className="err" style={{ marginBottom: 12 }}>{intgState.error}</div>}
+          {intgState.ok && <div className="ok-note" style={{ marginBottom: 12 }}>Integración guardada.</div>}
+
+          <div className="field-row">
+            <div className="field">
+              <label>Adaptador</label>
+              <select
+                className="input"
+                name="integracion_tipo"
+                value={intgTipo}
+                onChange={(e) => setIntgTipo(e.target.value)}
+              >
+                <option value="local">Stock local (interno)</option>
+                <option value="bigbus">Big Bus (API externa)</option>
+              </select>
+            </div>
+            <div className="field" />
+          </div>
+
+          {intgTipo === "bigbus" && (
+            <div className="field-row">
+              <div className="field">
+                <label>Endpoint API <span className="hint">opcional hasta tener la API</span></label>
+                <input
+                  className="input"
+                  name="integracion_endpoint"
+                  defaultValue={(intg.endpoint as string) ?? ""}
+                  placeholder="https://api.bigbus.com/v1"
+                />
+              </div>
+              <div className="field">
+                <label>Credencial <span className="hint">nombre de variable de entorno</span></label>
+                <input
+                  className="input"
+                  name="integracion_api_key_ref"
+                  defaultValue={(intg.api_key_ref as string) ?? ""}
+                  placeholder="BIGBUS_API_KEY"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="fs-desc" style={{ marginBottom: 12 }}>
+            {intgTipo === "bigbus"
+              ? "Con endpoint y credencial se usará la API real de Big Bus para disponibilidad y reserva. Sin ellos, se usa el stock local como red de seguridad."
+              : "La disponibilidad y la reserva se gestionan con el stock interno (capacidad por servicio y fecha)."}
+          </div>
+
+          <button type="submit" className="btn btn-primary btn-sm" disabled={savingIntg}>
+            {savingIntg ? "Guardando…" : "Guardar integración"}
+          </button>
         </form>
 
         {msg && <div className="ok-note" style={{ marginTop: 12 }}>{msg}</div>}

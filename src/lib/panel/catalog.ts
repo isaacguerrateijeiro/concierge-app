@@ -31,11 +31,20 @@ export interface PriceTierPanel {
   activo: boolean;
 }
 
+export interface AvailabilityPanel {
+  fecha: string;
+  capacidad: number;
+  reservados: number;
+  activo: boolean;
+}
+
 export interface ServicioPanel {
   id: string;
   slug: string;
   titulo_i18n: I18n;
   subtitulo_i18n: I18n;
+  descripcion_i18n: I18n;
+  punto_encuentro_i18n: I18n;
   precio_desde: number | null;
   iva_tipo: number | null;
   moneda: string;
@@ -54,7 +63,9 @@ export interface ServicioPanel {
   categoriaNombre: string;
   proveedorNombre: string;
   proveedorColor: string | null;
+  capacidad_diaria: number | null;
   tiers: PriceTierPanel[];
+  availability: AvailabilityPanel[];
 }
 
 // Nodo del árbol de servicios para el panel (con profundidad para sangría).
@@ -127,6 +138,8 @@ interface ServicioRow {
   slug: string;
   titulo_i18n: unknown;
   subtitulo_i18n: unknown;
+  descripcion_i18n: unknown;
+  punto_encuentro_i18n: unknown;
   precio_desde: number | string | null;
   iva_tipo: number | string | null;
   moneda: string;
@@ -142,12 +155,13 @@ interface ServicioRow {
   orden: number;
   category_id: string;
   provider_id: string;
+  capacidad_diaria: number | null;
   categories: { nombre_i18n: unknown } | null;
   providers: { nombre: string; color_marca: string | null } | null;
 }
 
 const SERVICE_COLS =
-  "id, slug, titulo_i18n, subtitulo_i18n, precio_desde, iva_tipo, moneda, tipo_pago, tipo_nodo, estado, parent_id, imagen_url, fuente_ref, url_redireccion, icono, activo, orden, category_id, provider_id, categories(nombre_i18n), providers(nombre, color_marca)";
+  "id, slug, titulo_i18n, subtitulo_i18n, descripcion_i18n, punto_encuentro_i18n, precio_desde, iva_tipo, moneda, tipo_pago, tipo_nodo, estado, parent_id, imagen_url, fuente_ref, url_redireccion, icono, activo, orden, category_id, provider_id, capacidad_diaria, categories(nombre_i18n), providers(nombre, color_marca)";
 
 function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
   return {
@@ -155,6 +169,8 @@ function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
     slug: s.slug,
     titulo_i18n: i18n(s.titulo_i18n),
     subtitulo_i18n: i18n(s.subtitulo_i18n),
+    descripcion_i18n: i18n(s.descripcion_i18n),
+    punto_encuentro_i18n: i18n(s.punto_encuentro_i18n),
     precio_desde: num(s.precio_desde),
     iva_tipo: num(s.iva_tipo),
     moneda: s.moneda,
@@ -173,7 +189,9 @@ function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
     categoriaNombre: loc(i18n(s.categories?.nombre_i18n), localeDefault),
     proveedorNombre: s.providers?.nombre ?? "—",
     proveedorColor: s.providers?.color_marca ?? null,
+    capacidad_diaria: s.capacidad_diaria ?? null,
     tiers: [],
+    availability: [],
   };
 }
 
@@ -217,6 +235,31 @@ export async function listarServicios(
       }
       for (const s of servicios) {
         s.tiers = tierMap.get(s.id) ?? [];
+      }
+    }
+
+    // Cargar stock por fecha (solo fechas de hoy en adelante) para el editor.
+    const hoyStr = new Date().toISOString().slice(0, 10);
+    const { data: availData } = await supabase
+      .from("service_availability")
+      .select("service_id, fecha, capacidad, reservados, activo")
+      .in("service_id", ids)
+      .gte("fecha", hoyStr)
+      .order("fecha", { ascending: true });
+
+    if (availData) {
+      const availMap = new Map<string, AvailabilityPanel[]>();
+      for (const a of availData) {
+        if (!availMap.has(a.service_id)) availMap.set(a.service_id, []);
+        availMap.get(a.service_id)!.push({
+          fecha: a.fecha,
+          capacidad: a.capacidad,
+          reservados: a.reservados,
+          activo: a.activo,
+        });
+      }
+      for (const s of servicios) {
+        s.availability = availMap.get(s.id) ?? [];
       }
     }
   }

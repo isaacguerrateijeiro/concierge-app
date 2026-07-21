@@ -39,6 +39,8 @@ const TEXTOS: Record<string, Record<string, string>> = {
     terms: "Términos",
     privacy: "Privacidad",
     vatIncluded: "IVA incluido",
+    meetingPoint: "Punto de encuentro",
+    serviceDate: "Fecha del servicio",
     legalNote:
       "Factura simplificada emitida por cada proveedor. Conserva este documento.",
   },
@@ -64,6 +66,8 @@ const TEXTOS: Record<string, Record<string, string>> = {
     terms: "Terms",
     privacy: "Privacy",
     vatIncluded: "VAT included",
+    meetingPoint: "Meeting point",
+    serviceDate: "Service date",
     legalNote:
       "Simplified invoice issued by each provider. Please keep this document.",
   },
@@ -335,6 +339,16 @@ function Emisor({
               {it.iva_tipo !== null && (
                 <div className="muted" style={{ fontSize: 12 }}>
                   {money(it.precio_unitario, moneda, lang)} · {t("vat")} {it.iva_tipo}%
+                </div>
+              )}
+              {it.fecha_servicio && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  {t("serviceDate")}: <strong>{it.fecha_servicio}</strong>
+                </div>
+              )}
+              {localized(it.punto_encuentro, lang) && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  {t("meetingPoint")}: <strong>{localized(it.punto_encuentro, lang)}</strong>
                 </div>
               )}
               {it.voucher && qr && (

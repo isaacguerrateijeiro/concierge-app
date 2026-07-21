@@ -12,14 +12,20 @@ import {
 } from "./commissions";
 import { cartSchema } from "./cart.schema";
 import { generarReferencia } from "@/lib/vouchers/codigo";
+import { resolverAdapter } from "@/lib/integrations";
+import { generarVouchersPedido } from "@/lib/vouchers/vouchers";
+import { confirmarReservasPedido } from "@/lib/integrations/bookings";
 
 // Importe mínimo cobrable por Stripe (50 céntimos).
 const IMPORTE_MINIMO = 0.5;
 
-export interface ResultadoCheckout {
-  clientSecret: string;
-  orderId: string;
-}
+// Resultado del checkout: o bien una sesión de pago de Stripe (Embedded
+// Checkout), o bien una reserva gratuita ya confirmada sin pasar por Stripe.
+// En ambos casos hay un sessionId con el que la pantalla de confirmación
+// consulta el estado del pedido (get_order_status).
+export type ResultadoCheckout =
+  | { tipo: "pago"; clientSecret: string; sessionId: string; orderId: string }
+  | { tipo: "gratis"; sessionId: string; orderId: string };
 
 export interface EstadoPedido {
   estado: "pending" | "paid" | "failed" | "expired";
@@ -75,13 +81,16 @@ export async function crearCheckoutParaCarrito(
   );
   const { data: provs, error: errProv } = await supabase
     .from("providers")
-    .select("id, stripe_payouts_activos")
+    .select("id, stripe_payouts_activos, integracion_config")
     .in("id", providerIdsCarrito);
   if (errProv) {
     throw new Error(`No se pudieron leer los proveedores: ${errProv.message}`);
   }
   const payoutReady = new Map(
     (provs ?? []).map((p) => [p.id, p.stripe_payouts_activos])
+  );
+  const integracionPorProvider = new Map(
+    (provs ?? []).map((p) => [p.id, p.integracion_config])
   );
 
   const porSlug = new Map((servicios ?? []).map((s) => [s.slug, s]));
@@ -95,9 +104,40 @@ export async function crearCheckoutParaCarrito(
         `El servicio '${item.service_slug}' no se paga en el kiosko.`
       );
     }
-    if (!payoutReady.get(s.provider_id)) {
+    // El guard de Stripe Connect (payouts) se aplica más abajo, solo a los
+    // proveedores con líneas de importe > 0: un servicio gratuito (free tour)
+    // no requiere cuenta conectada porque no hay cobro ni reparto.
+  }
+
+  // 2b) Guard de disponibilidad: para las líneas con fecha, revalidamos contra
+  //     el adaptador del proveedor (stock local o API real) que quede stock
+  //     suficiente. La reserva efectiva se hace tras el pago (webhook), no aquí,
+  //     para no bloquear plazas en carritos abandonados.
+  for (const item of cart.items) {
+    if (!item.fecha) continue;
+    const s = porSlug.get(item.service_slug)!;
+    const requerido = item.pasajeros
+      ? item.pasajeros.reduce((acc, p) => acc + p.cantidad, 0)
+      : item.cantidad ?? 0;
+    if (requerido <= 0) continue;
+
+    const adapter = resolverAdapter(integracionPorProvider.get(s.provider_id));
+    const disp = await adapter.consultarDisponibilidad(
+      item.service_slug,
+      item.fecha,
+      item.fecha
+    );
+    const info = disp.dias[item.fecha];
+    // Plazas restantes: excepción por fecha si existe; si no, la capacidad
+    // diaria por defecto; null = sin límite.
+    const restante = info
+      ? info.agotado
+        ? 0
+        : info.restante
+      : disp.capacidadDiaria;
+    if (restante !== null && requerido > restante) {
       throw new Error(
-        `El servicio '${item.service_slug}' no está disponible para pago en este momento.`
+        `Ya no hay disponibilidad suficiente para '${item.service_slug}' el ${item.fecha}.`
       );
     }
   }
@@ -252,7 +292,27 @@ export async function crearCheckoutParaCarrito(
   const importeTotal = redondear2(
     lineas.reduce((acc, l) => acc + l.importe, 0)
   );
-  if (importeTotal < IMPORTE_MINIMO) {
+
+  // Guard de cobro: solo exigimos Stripe Connect (payouts activos) a los
+  // proveedores que aportan importe > 0. Los servicios gratuitos no requieren
+  // cuenta conectada. Sumamos por proveedor a partir de las líneas.
+  const importePorProvider = new Map<string, number>();
+  for (const l of lineas) {
+    const prov = porSlug.get(l.service_slug)!.provider_id;
+    importePorProvider.set(prov, (importePorProvider.get(prov) ?? 0) + l.importe);
+  }
+  for (const [prov, imp] of importePorProvider) {
+    if (imp > 0 && !payoutReady.get(prov)) {
+      throw new Error(
+        "Uno de los servicios de pago del carrito no está disponible para cobro en este momento."
+      );
+    }
+  }
+
+  // Reserva gratuita: si el total es 0 no hay cobro posible con Stripe (mínimo
+  // 0,50 €). Si hay importe pero es menor que el mínimo, es un error.
+  const esGratis = importeTotal === 0;
+  if (!esGratis && importeTotal < IMPORTE_MINIMO) {
     throw new Error(
       `El importe total (${importeTotal} ${moneda}) es menor que el mínimo cobrable.`
     );
@@ -316,7 +376,31 @@ export async function crearCheckoutParaCarrito(
     }
   }
 
-  // 7) Crear la sesión de pago de Stripe (Embedded Checkout)
+  // 7a) Reserva gratuita (importe 0): no pasamos por Stripe. Marcamos el pedido
+  //     como pagado, generamos el comprobante (voucher/QR) y descontamos stock
+  //     al instante. Usamos un id de sesión sintético para que la pantalla de
+  //     confirmación consulte el estado con el mismo mecanismo (get_order_status).
+  if (esGratis) {
+    const sessionId = `free_${pedido.id}`;
+    const { error: errFree } = await supabase
+      .from("orders")
+      .update({
+        stripe_checkout_session_id: sessionId,
+        estado: "paid",
+        paid_at: new Date().toISOString(),
+      })
+      .eq("id", pedido.id);
+    if (errFree) {
+      throw new Error(`No se pudo confirmar la reserva gratuita: ${errFree.message}`);
+    }
+    // Comprobante + reserva de plazas (idempotentes). Facturas/transferencias
+    // no aplican a un importe 0.
+    await generarVouchersPedido(pedido.id);
+    await confirmarReservasPedido(pedido.id);
+    return { tipo: "gratis", sessionId, orderId: pedido.id };
+  }
+
+  // 7b) Crear la sesión de pago de Stripe (Embedded Checkout)
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.create({
     ui_mode: "embedded_page",
@@ -346,7 +430,12 @@ export async function crearCheckoutParaCarrito(
     throw new Error(`No se pudo asociar la sesión de pago: ${errUpd.message}`);
   }
 
-  return { clientSecret: session.client_secret, orderId: pedido.id };
+  return {
+    tipo: "pago",
+    clientSecret: session.client_secret,
+    sessionId: session.id,
+    orderId: pedido.id,
+  };
 }
 
 // Devuelve el estado del pedido a partir del id de sesión de Stripe.

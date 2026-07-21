@@ -29,12 +29,19 @@ const schema = z.object({
   imagen_url: z.string().url("URL de imagen no válida").optional().or(z.literal("")),
   orden: z.string().optional(),
   activo: z.string().optional(),
+  capacidad_diaria: z.string().optional(),
 });
 
 function parseNum(v: string | undefined): number | null {
   if (!v || v.trim() === "") return null;
   const n = parseFloat(v.replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+function parseIntNull(v: string | undefined | null): number | null {
+  if (v == null || String(v).trim() === "") return null;
+  const n = parseInt(String(v), 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 async function localesTenant(tenantId: string): Promise<string[]> {
@@ -80,6 +87,7 @@ export async function guardarServicio(
     imagen_url: formData.get("imagen_url") ?? "",
     orden: formData.get("orden") ?? undefined,
     activo: formData.get("activo") ?? undefined,
+    capacidad_diaria: formData.get("capacidad_diaria") ?? undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Datos no válidos" };
@@ -124,6 +132,8 @@ export async function guardarServicio(
   const locales = await localesTenant(tenantId);
   const titulo = i18nDesdeForm(formData, "titulo", locales);
   const subtitulo = i18nDesdeForm(formData, "subtitulo", locales);
+  const descripcion = i18nDesdeForm(formData, "descripcion", locales);
+  const puntoEncuentro = i18nDesdeForm(formData, "punto_encuentro", locales);
   if (!titulo[locales[0]] && Object.keys(titulo).length === 0) {
     return { error: "El título es obligatorio." };
   }
@@ -145,8 +155,11 @@ export async function guardarServicio(
     imagen_url: d.imagen_url || null,
     orden: parseNum(d.orden) ?? 0,
     activo: d.activo === "on" || d.activo === "true",
+    capacidad_diaria: esGrupo ? null : parseIntNull(d.capacidad_diaria),
     titulo_i18n: titulo,
     subtitulo_i18n: subtitulo,
+    descripcion_i18n: descripcion,
+    punto_encuentro_i18n: puntoEncuentro,
   };
 
   let serviceId: string;
@@ -222,6 +235,55 @@ export async function guardarServicio(
       .from("service_price_tiers")
       .delete()
       .eq("service_id", serviceId);
+  }
+
+  // Guardar excepciones de stock por fecha (solo servicios integrados).
+  // Upsert preserva 'reservados'; solo eliminamos fechas quitadas SIN reservas.
+  if (esIntegrado) {
+    const availCount = parseInt(
+      (formData.get("avail_count") as string | null) ?? "0",
+      10
+    );
+    const hoyStr = new Date().toISOString().slice(0, 10);
+    const enviadas: { fecha: string; capacidad: number }[] = [];
+    for (let i = 0; i < availCount; i++) {
+      const fecha = (formData.get(`avail_fecha_${i}`) as string | null)?.trim();
+      const capacidad = parseIntNull(
+        formData.get(`avail_capacidad_${i}`) as string | null
+      );
+      if (!fecha || capacidad === null) continue;
+      enviadas.push({ fecha, capacidad });
+    }
+
+    for (const row of enviadas) {
+      const { error: errAvail } = await supabase
+        .from("service_availability")
+        .upsert(
+          {
+            service_id: serviceId,
+            fecha: row.fecha,
+            capacidad: row.capacidad,
+            activo: true,
+          },
+          { onConflict: "service_id,fecha" }
+        );
+      if (errAvail)
+        return { error: `No se pudo guardar el stock: ${errAvail.message}` };
+    }
+
+    // Borrar excepciones futuras retiradas del formulario que no tengan reservas.
+    const { data: existentes } = await supabase
+      .from("service_availability")
+      .select("id, fecha, reservados")
+      .eq("service_id", serviceId)
+      .gte("fecha", hoyStr);
+    const fechasEnviadas = new Set(enviadas.map((e) => e.fecha));
+    const aBorrar = (existentes ?? [])
+      .filter((e) => !fechasEnviadas.has(e.fecha) && e.reservados === 0)
+      .map((e) => e.id);
+    if (aBorrar.length > 0) {
+      await supabase.from("service_availability").delete().in("id", aBorrar);
+    }
   }
 
   revalidateTag(catalogCacheTag(ctx.currentTenant.slug), "max");

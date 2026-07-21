@@ -92,6 +92,10 @@ export const catalogServiceSchema = z.object({
   slug: z.string(),
   titulo_i18n: localizedSchema,
   subtitulo_i18n: localizedSchema,
+  // Descripción larga por idioma (texto rico del detalle del producto).
+  descripcion_i18n: localizedSchema.default({}),
+  // Punto de encuentro / lugar de salida por idioma (p.ej. free tours a pie).
+  punto_encuentro_i18n: localizedSchema.default({}),
   // Etiqueta de duración por idioma: {"es":"Medio día","en":"Half day"}.
   duracion_i18n: localizedSchema.default({}),
   // Un 'grupo' no tiene modelo de pago (no se vende); un 'servicio' sí.

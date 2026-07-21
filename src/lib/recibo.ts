@@ -40,6 +40,11 @@ const reciboItemSchema = z.object({
   precio_unitario: z.number(),
   importe: z.number(),
   iva_tipo: z.coerce.number().nullable().default(null),
+  fecha_servicio: z.string().nullable().default(null),
+  punto_encuentro: z
+    .union([z.string(), z.record(z.string(), z.string())])
+    .nullable()
+    .default(null),
   voucher: reciboVoucherSchema,
 });
 

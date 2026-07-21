@@ -423,6 +423,57 @@ export type Database = {
           },
         ]
       }
+      order_bookings: {
+        Row: {
+          adaptador: string | null
+          created_at: string
+          error: string | null
+          estado: string
+          id: string
+          order_id: string
+          provider_id: string
+          referencia_externa: string | null
+          updated_at: string
+        }
+        Insert: {
+          adaptador?: string | null
+          created_at?: string
+          error?: string | null
+          estado?: string
+          id?: string
+          order_id: string
+          provider_id: string
+          referencia_externa?: string | null
+          updated_at?: string
+        }
+        Update: {
+          adaptador?: string | null
+          created_at?: string
+          error?: string | null
+          estado?: string
+          id?: string
+          order_id?: string
+          provider_id?: string
+          referencia_externa?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_bookings_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_bookings_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_commissions: {
         Row: {
           beneficiario: string
@@ -886,6 +937,7 @@ export type Database = {
           fuente_config: Json
           fuente_url: string | null
           id: string
+          integracion_config: Json
           logo: string | null
           nombre: string
           slug: string
@@ -903,6 +955,7 @@ export type Database = {
           fuente_config?: Json
           fuente_url?: string | null
           id?: string
+          integracion_config?: Json
           logo?: string | null
           nombre: string
           slug: string
@@ -920,6 +973,7 @@ export type Database = {
           fuente_config?: Json
           fuente_url?: string | null
           id?: string
+          integracion_config?: Json
           logo?: string | null
           nombre?: string
           slug?: string
@@ -935,6 +989,44 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_availability: {
+        Row: {
+          activo: boolean
+          capacidad: number
+          created_at: string
+          fecha: string
+          id: string
+          reservados: number
+          service_id: string
+        }
+        Insert: {
+          activo?: boolean
+          capacidad?: number
+          created_at?: string
+          fecha: string
+          id?: string
+          reservados?: number
+          service_id: string
+        }
+        Update: {
+          activo?: boolean
+          capacidad?: number
+          created_at?: string
+          fecha?: string
+          id?: string
+          reservados?: number
+          service_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_availability_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
             referencedColumns: ["id"]
           },
         ]
@@ -983,8 +1075,10 @@ export type Database = {
       services: {
         Row: {
           activo: boolean
+          capacidad_diaria: number | null
           category_id: string
           created_at: string
+          descripcion_i18n: Json
           duracion_i18n: Json
           estado: string
           fuente_ref: string | null
@@ -997,6 +1091,7 @@ export type Database = {
           parent_id: string | null
           precio_desde: number | null
           provider_id: string
+          punto_encuentro_i18n: Json
           slug: string
           subtitulo_i18n: Json
           tenant_id: string
@@ -1008,8 +1103,10 @@ export type Database = {
         }
         Insert: {
           activo?: boolean
+          capacidad_diaria?: number | null
           category_id: string
           created_at?: string
+          descripcion_i18n?: Json
           duracion_i18n?: Json
           estado?: string
           fuente_ref?: string | null
@@ -1022,6 +1119,7 @@ export type Database = {
           parent_id?: string | null
           precio_desde?: number | null
           provider_id: string
+          punto_encuentro_i18n?: Json
           slug: string
           subtitulo_i18n?: Json
           tenant_id: string
@@ -1033,8 +1131,10 @@ export type Database = {
         }
         Update: {
           activo?: boolean
+          capacidad_diaria?: number | null
           category_id?: string
           created_at?: string
+          descripcion_i18n?: Json
           duracion_i18n?: Json
           estado?: string
           fuente_ref?: string | null
@@ -1047,6 +1147,7 @@ export type Database = {
           parent_id?: string | null
           precio_desde?: number | null
           provider_id?: string
+          punto_encuentro_i18n?: Json
           slug?: string
           subtitulo_i18n?: Json
           tenant_id?: string
@@ -1144,6 +1245,10 @@ export type Database = {
       }
       app_is_platform_admin: { Args: never; Returns: boolean }
       get_catalog: { Args: { p_tenant_slug: string }; Returns: Json }
+      get_disponibilidad: {
+        Args: { p_desde: string; p_hasta: string; p_service_slug: string }
+        Returns: Json
+      }
       get_order_status: { Args: { p_session_id: string }; Returns: Json }
       get_recibo: { Args: { p_token: string }; Returns: Json }
       panel_clientes: {
@@ -1170,6 +1275,10 @@ export type Database = {
       panel_ventas: {
         Args: { p_desde: string; p_hasta: string; p_tenant: string }
         Returns: Json
+      }
+      reservar_stock: {
+        Args: { p_cantidad: number; p_fecha: string; p_service_id: string }
+        Returns: boolean
       }
       siguiente_numero_factura: {
         Args: { p_anio: number; p_provider_id: string; p_serie: string }

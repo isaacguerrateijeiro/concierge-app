@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Lang } from "./data";
 import { useUiText } from "./uiText";
 import { Catalog, CatalogService, PriceTier, tx } from "@/lib/catalog.schema";
@@ -8,6 +8,17 @@ import { formatearImporte } from "./format";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icon";
 import type { CartLineItem, Pasajero } from "@/lib/payments/cart.schema";
+import { consultarDisponibilidad } from "@/lib/integrations/disponibilidad";
+import type { Disponibilidad } from "@/lib/integrations/types";
+
+// Plazas restantes para una fecha: excepción por fecha si existe; si no, la
+// capacidad diaria por defecto. null = sin límite (ilimitado).
+function plazasRestantes(disp: Disponibilidad | null, fecha: string | null): number | null {
+  if (!disp || !fecha) return null;
+  const d = disp.dias[fecha];
+  if (d) return d.agotado ? 0 : d.restante;
+  return disp.capacidadDiaria;
+}
 
 interface DetailScreenProps {
   catalog: Catalog;
@@ -53,10 +64,12 @@ function toIso(y: number, m: number, d: number): string {
 function CalendarioMinicalendario({
   lang,
   fechaSeleccionada,
+  disponibilidad,
   onSelect,
 }: {
   lang: Lang;
   fechaSeleccionada: string | null;
+  disponibilidad: Disponibilidad | null;
   onSelect: (fecha: string) => void;
 }) {
   const hoy = new Date();
@@ -82,11 +95,13 @@ function CalendarioMinicalendario({
     else setMes((m) => m + 1);
   }
 
-  const celdas: Array<{ dia: number | null; iso: string | null; pasado: boolean }> = [];
-  for (let i = 0; i < offsetLunes; i++) celdas.push({ dia: null, iso: null, pasado: true });
+  const celdas: Array<{ dia: number | null; iso: string | null; pasado: boolean; agotado: boolean }> = [];
+  for (let i = 0; i < offsetLunes; i++) celdas.push({ dia: null, iso: null, pasado: true, agotado: false });
   for (let d = 1; d <= diasEnMes; d++) {
     const iso = toIso(año, mes, d);
-    celdas.push({ dia: d, iso, pasado: iso < hoyStr });
+    const restante = plazasRestantes(disponibilidad, iso);
+    const agotado = restante !== null && restante <= 0;
+    celdas.push({ dia: d, iso, pasado: iso < hoyStr, agotado });
   }
 
   return (
@@ -123,33 +138,48 @@ function CalendarioMinicalendario({
           if (!c.dia) return <div key={i} />;
           const seleccionado = c.iso === fechaSeleccionada;
           const esHoy = c.iso === hoyStr;
+          const bloqueado = c.pasado || c.agotado;
           return (
             <button
               key={i}
               type="button"
-              disabled={c.pasado}
-              onClick={() => c.iso && onSelect(c.iso)}
+              disabled={bloqueado}
+              onClick={() => c.iso && !bloqueado && onSelect(c.iso)}
               style={{
+                position: "relative",
                 height: 54,
                 borderRadius: 12,
                 border: seleccionado
                   ? "2px solid var(--ink)"
-                  : esHoy
+                  : esHoy && !c.agotado
                   ? "2px solid var(--accent, #e67e22)"
                   : "2px solid transparent",
                 background: seleccionado ? "var(--ink)" : "transparent",
-                color: c.pasado ? "var(--muted)" : seleccionado ? "#fff" : "var(--ink)",
+                color: bloqueado ? "var(--muted)" : seleccionado ? "#fff" : "var(--ink)",
                 fontFamily: "var(--sans)",
                 fontWeight: seleccionado || esHoy ? 700 : 400,
                 fontSize: 18,
-                cursor: c.pasado ? "not-allowed" : "pointer",
-                opacity: c.pasado ? 0.35 : 1,
+                cursor: bloqueado ? "not-allowed" : "pointer",
+                opacity: c.pasado ? 0.35 : c.agotado ? 0.55 : 1,
+                textDecoration: c.agotado ? "line-through" : "none",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
               {c.dia}
+              {c.agotado && !c.pasado && (
+                <span
+                  style={{
+                    position: "absolute",
+                    bottom: 4,
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "#c0392b",
+                  }}
+                />
+              )}
             </button>
           );
         })}
@@ -165,6 +195,7 @@ function PasajeroRow({
   cantidad,
   lang,
   moneda,
+  disableInc,
   onInc,
   onDec,
 }: {
@@ -172,6 +203,7 @@ function PasajeroRow({
   cantidad: number;
   lang: Lang;
   moneda: string;
+  disableInc?: boolean;
   onInc: () => void;
   onDec: () => void;
 }) {
@@ -198,7 +230,7 @@ function PasajeroRow({
         <span style={{ fontFamily: "var(--sans)", fontWeight: 800, fontSize: 28, minWidth: 30, textAlign: "center", color: "var(--ink)" }}>
           {cantidad}
         </span>
-        <QtyBtn label="+" onClick={onInc} />
+        <QtyBtn label="+" onClick={onInc} disabled={disableInc} />
       </div>
     </div>
   );
@@ -237,6 +269,27 @@ export default function DetailScreen({
   // Cantidad para servicios sin tiers (comportamiento legado)
   const [justAdded, setJustAdded] = useState(false);
 
+  // Disponibilidad por fecha del proveedor (stock local o API real vía adaptador).
+  // null = aún cargando; {} o mapa = ya resuelto. El componente se remonta por
+  // servicio (key=slug), así que no hace falta reiniciar el estado manualmente.
+  const [disponibilidad, setDisponibilidad] = useState<Disponibilidad | null>(null);
+  const cargandoDisp = hasTiers && disponibilidad === null;
+
+  useEffect(() => {
+    if (!hasTiers) return;
+    let activo = true;
+    consultarDisponibilidad(nodeSlug)
+      .then((m) => {
+        if (activo) setDisponibilidad(m);
+      })
+      .catch(() => {
+        if (activo) setDisponibilidad({ capacidadDiaria: null, dias: {} });
+      });
+    return () => {
+      activo = false;
+    };
+  }, [hasTiers, nodeSlug]);
+
   // Total dinámico basado en tiers seleccionados (hook antes del early return)
   const totalTiers = useMemo(() => {
     if (!hasTiers || !service) return null;
@@ -256,6 +309,8 @@ export default function DetailScreen({
   const titulo = tx(service.titulo_i18n, lang);
   const tituloCorto = titulo.split("·").slice(-1)[0].trim();
   const subtitulo = tx(service.subtitulo_i18n, lang);
+  const descripcion = tx(service.descripcion_i18n, lang);
+  const puntoEncuentro = tx(service.punto_encuentro_i18n, lang);
   const duracion = tx(service.duracion_i18n, lang);
   const breadcrumb = tituloPadre(catalog, service, lang);
   const esDerivado = service.tipo_pago === "derivado";
@@ -263,7 +318,13 @@ export default function DetailScreen({
   const gratis = service.precio_desde === 0;
 
   const totalPasajeros = Object.values(pasajeros).reduce((a, b) => a + b, 0);
-  const puedeAñadir = hasTiers ? fecha !== null && totalPasajeros > 0 : true;
+  // Plazas restantes para la fecha elegida (null = sin límite configurado).
+  const plazasFecha = plazasRestantes(disponibilidad, fecha);
+  const alcanzadoMax = plazasFecha !== null && totalPasajeros >= plazasFecha;
+  const dentroDeStock = plazasFecha === null || totalPasajeros <= plazasFecha;
+  const puedeAñadir = hasTiers
+    ? fecha !== null && totalPasajeros > 0 && dentroDeStock
+    : true;
 
   // ── Cantidad ya en carrito (para servicios sin tiers) ──
   const cantidadLegado = cartItem?.cantidad ?? 0;
@@ -389,17 +450,54 @@ export default function DetailScreen({
         )}
       </div>
 
+      {/* Descripción larga + punto de encuentro */}
+      {(descripcion || puntoEncuentro) && (
+        <div style={{ padding: "4px 60px 8px", maxWidth: 940 }}>
+          {descripcion && (
+            <>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>
+                {t(lang, "about")}
+              </div>
+              <p style={{ fontFamily: "var(--sans)", fontSize: 19, lineHeight: 1.6, color: "var(--ink-3)", margin: 0 }}>
+                {descripcion}
+              </p>
+            </>
+          )}
+          {puntoEncuentro && (
+            <div style={{ marginTop: descripcion ? 22 : 0, display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 20px" }}>
+              <Icon name="pin" size={22} sw={2} stroke="var(--accent, #e67e22)" />
+              <div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--muted)" }}>
+                  {t(lang, "meetingPoint")}
+                </div>
+                <div style={{ fontFamily: "var(--sans)", fontWeight: 700, fontSize: 20, color: "var(--ink)", marginTop: 2 }}>
+                  {puntoEncuentro}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Sección de tiers: calendario + pasajeros ── */}
       {hasTiers && !esDerivado && (
         <div style={{ padding: "0 60px 28px" }}>
           {/* Calendario */}
           <div style={{ background: "#fff", borderRadius: 22, padding: "28px 28px 20px", border: "1px solid var(--line)", marginBottom: 20 }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 18 }}>
-              {t(lang, "chooseDate")}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--muted)" }}>
+                {t(lang, "chooseDate")}
+              </div>
+              {cargandoDisp && (
+                <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--muted)" }}>
+                  {t(lang, "checkingAvailability")}
+                </span>
+              )}
             </div>
             <CalendarioMinicalendario
               lang={lang}
               fechaSeleccionada={fecha}
+              disponibilidad={disponibilidad}
               onSelect={setFecha}
             />
             {fecha && (
@@ -414,8 +512,15 @@ export default function DetailScreen({
 
           {/* Selectores de pasajeros */}
           <div style={{ background: "#fff", borderRadius: 22, padding: "20px 28px 8px", border: "1px solid var(--line)", marginBottom: 20 }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 4 }}>
-              {t(lang, "passengers")}
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--muted)" }}>
+                {t(lang, "passengers")}
+              </div>
+              {fecha && plazasFecha !== null && (
+                <span style={{ fontFamily: "var(--mono)", fontSize: 13, color: alcanzadoMax ? "#c0392b" : "var(--muted)" }}>
+                  {plazasFecha} {t(lang, "seatsLeft")}
+                </span>
+              )}
             </div>
             {service.price_tiers.map((tier) => (
               <PasajeroRow
@@ -424,8 +529,12 @@ export default function DetailScreen({
                 cantidad={pasajeros[tier.tipo] ?? 0}
                 lang={lang}
                 moneda={service.moneda}
+                disableInc={alcanzadoMax}
                 onInc={() =>
-                  setPasajeros((p) => ({ ...p, [tier.tipo]: (p[tier.tipo] ?? 0) + 1 }))
+                  setPasajeros((p) => {
+                    if (alcanzadoMax) return p;
+                    return { ...p, [tier.tipo]: (p[tier.tipo] ?? 0) + 1 };
+                  })
                 }
                 onDec={() =>
                   setPasajeros((p) => ({
@@ -435,6 +544,11 @@ export default function DetailScreen({
                 }
               />
             ))}
+            {alcanzadoMax && (
+              <div style={{ fontFamily: "var(--sans)", fontSize: 15, color: "#c0392b", padding: "10px 0 0" }}>
+                {t(lang, "maxSeats")}
+              </div>
+            )}
 
             {/* Total dinámico */}
             {totalTiers !== null && totalTiers > 0 && (
@@ -568,11 +682,20 @@ export default function DetailScreen({
   );
 }
 
-function QtyBtn({ label, onClick }: { label: string; onClick: () => void }) {
+function QtyBtn({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className="tap"
       style={{
         width: 54,
@@ -584,7 +707,8 @@ function QtyBtn({ label, onClick }: { label: string; onClick: () => void }) {
         fontSize: 32,
         fontWeight: 700,
         lineHeight: 1,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.3 : 1,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

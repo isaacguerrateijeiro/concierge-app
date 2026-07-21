@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { crearTransferenciasPedido } from "@/lib/payments/transfers";
 import { generarVouchersPedido } from "@/lib/vouchers/vouchers";
 import { emitirFacturasPedido } from "@/lib/invoices/invoices";
+import { confirmarReservasPedido } from "@/lib/integrations/bookings";
 import { leerEstadoCuenta } from "@/lib/stripe/connect";
 
 // El webhook es la FUENTE DE VERDAD del resultado del pago: Stripe nos avisa
@@ -56,6 +57,9 @@ export async function POST(req: Request) {
           await emitirFacturasPedido(orderId);
           await generarVouchersPedido(orderId);
           await crearTransferenciasPedido(orderId);
+          // Formalizar la reserva con cada proveedor y descontar stock
+          // (local o API real vía adaptador). Idempotente por pedido/proveedor.
+          await confirmarReservasPedido(orderId);
         }
       }
       break;

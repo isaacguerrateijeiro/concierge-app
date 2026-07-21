@@ -23,6 +23,7 @@ export interface ScrapedItem {
   ref: string; // identificador estable en origen (normalmente la URL del item)
   titulo: string;
   descripcion?: string | null;
+  punto_encuentro?: string | null; // lugar de salida (free tours / actividades a pie)
   duracion?: string | null; // etiqueta de duración (ej. "Medio día", "1 Día")
   precio?: number | null;
   moneda?: string | null;
@@ -50,11 +51,16 @@ export interface FuenteConfig {
   item?: string; // selector de cada tarjeta/producto
   titulo?: string;
   descripcion?: string; // texto/tagline de la tarjeta
+  punto_encuentro?: string; // selector del punto de encuentro / lugar de salida
   duracion?: string; // etiqueta de duración de la tarjeta
   precio?: string;
   imagen?: string; // se lee src/data-src/href
   enlace?: string; // se lee href
   grupo?: string; // etiqueta de agrupación dentro de la tarjeta
+  // Solo importar tarjetas gratuitas (precio 0 o ausente). Útil para free tours.
+  solo_gratuitos?: boolean;
+  // Categoría destino (id) para los items importados de esta fuente.
+  categoria_id?: string;
   // Tarifas por tipo de pasajero: array de configuraciones de tier
   tiers_config?: TierConfig[];
 }
@@ -164,7 +170,13 @@ function leerSelectores(html: string, base: string, cfg: FuenteConfig): ScrapedI
     const titulo = cfg.titulo ? $el.find(cfg.titulo).first().text().trim() : $el.text().trim();
     if (!titulo) return;
     const precio = cfg.precio ? parsePrecio($el.find(cfg.precio).first().text()) : null;
-    const enlaceEl = cfg.enlace ? $el.find(cfg.enlace).first() : $el.find("a").first();
+    // Enlace: selector explícito, o el propio elemento si es un <a> (listas de
+    // enlaces), o el primer <a> descendiente.
+    const enlaceEl = cfg.enlace
+      ? $el.find(cfg.enlace).first()
+      : $el.is("a")
+        ? $el
+        : $el.find("a").first();
     const url = absolutizar(base, enlaceEl.attr("href"));
     let imagen: string | null = null;
     if (cfg.imagen) {
@@ -172,8 +184,12 @@ function leerSelectores(html: string, base: string, cfg: FuenteConfig): ScrapedI
       imagen = absolutizar(base, img.attr("src") ?? img.attr("data-src") ?? img.attr("href"));
     }
     const descripcion = cfg.descripcion ? $el.find(cfg.descripcion).first().text().trim() || null : null;
+    const puntoEncuentro = cfg.punto_encuentro ? $el.find(cfg.punto_encuentro).first().text().trim() || null : null;
     const duracion = cfg.duracion ? $el.find(cfg.duracion).first().text().trim() || null : null;
     const grupo = cfg.grupo ? $el.find(cfg.grupo).first().text().trim() || null : null;
+
+    // Filtro de solo gratuitos: descartar tarjetas con precio > 0.
+    if (cfg.solo_gratuitos && precio !== null && precio > 0) return;
 
     // Tarifas por tipo de pasajero (si están configuradas)
     let tiers: ScrapedTier[] | null = null;
@@ -197,6 +213,7 @@ function leerSelectores(html: string, base: string, cfg: FuenteConfig): ScrapedI
       ref: url ?? `${base}#${slugify(titulo)}`,
       titulo,
       descripcion,
+      punto_encuentro: puntoEncuentro,
       duracion,
       precio,
       imagen,

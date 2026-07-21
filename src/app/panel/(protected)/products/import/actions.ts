@@ -8,6 +8,7 @@ import { requirePanelContext, assertCapacidad } from "@/lib/auth/context";
 import { catalogCacheTag } from "@/lib/catalog";
 import { scrapeFuente, type FuenteConfig } from "@/lib/import/scraper";
 import { importarProveedor, type ResultadoImportacion } from "@/lib/import/importar";
+import { actualizarCatalogoTenant, type ResultadoBatch } from "@/lib/import/batch";
 
 export interface FuenteFormState {
   error?: string;
@@ -24,6 +25,10 @@ const fuenteSchema = z.object({
   imagen: z.string().optional(),
   enlace: z.string().optional(),
   grupo: z.string().optional(),
+  descripcion: z.string().optional(),
+  duracion: z.string().optional(),
+  punto_encuentro: z.string().optional(),
+  solo_gratuitos: z.string().optional(),
 });
 
 function limpio(v: string | undefined): string | undefined {
@@ -49,17 +54,27 @@ export async function guardarFuente(
     imagen: formData.get("imagen") ?? undefined,
     enlace: formData.get("enlace") ?? undefined,
     grupo: formData.get("grupo") ?? undefined,
+    descripcion: formData.get("descripcion") ?? undefined,
+    duracion: formData.get("duracion") ?? undefined,
+    punto_encuentro: formData.get("punto_encuentro") ?? undefined,
+    solo_gratuitos: formData.get("solo_gratuitos") ?? undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Datos no válidos" };
   }
   const d = parsed.data;
 
-  const config: Record<string, string> = {};
+  const config: Record<string, string | boolean> = {};
   if (d.categoria_id) config.categoria_id = d.categoria_id;
-  for (const k of ["item", "titulo", "precio", "imagen", "enlace", "grupo"] as const) {
+  for (const k of [
+    "item", "titulo", "precio", "imagen", "enlace", "grupo",
+    "descripcion", "duracion", "punto_encuentro",
+  ] as const) {
     const v = limpio(d[k]);
     if (v) config[k] = v;
+  }
+  if (d.solo_gratuitos === "on" || d.solo_gratuitos === "true") {
+    config.solo_gratuitos = true;
   }
 
   const supabase = await createSupabaseServerClient();
@@ -69,6 +84,53 @@ export async function guardarFuente(
       fuente_url: d.fuente_url || null,
       fuente_config: config as unknown as Json,
     })
+    .eq("id", d.provider_id)
+    .eq("tenant_id", tenantId);
+  if (error) return { error: `No se pudo guardar: ${error.message}` };
+
+  revalidatePath("/panel/products/import");
+  return { ok: true };
+}
+
+const integracionSchema = z.object({
+  provider_id: z.string().uuid("Proveedor no válido"),
+  tipo: z.enum(["local", "bigbus"]).default("local"),
+  endpoint: z.string().url("Endpoint no válido").optional().or(z.literal("")),
+  api_key_ref: z.string().optional(),
+});
+
+// Guarda el adaptador de integración del proveedor (motor de stock local o API
+// de Big Bus). Cuando el tipo es 'bigbus' y hay endpoint + referencia de
+// credencial, el adaptador usará la API real; si no, cae al stock local.
+export async function guardarIntegracion(
+  _prev: FuenteFormState,
+  formData: FormData
+): Promise<FuenteFormState> {
+  const ctx = await requirePanelContext();
+  assertCapacidad(ctx, "catalog.edit");
+  const tenantId = ctx.currentTenant.id;
+
+  const parsed = integracionSchema.safeParse({
+    provider_id: formData.get("provider_id"),
+    tipo: formData.get("integracion_tipo") ?? "local",
+    endpoint: formData.get("integracion_endpoint") ?? "",
+    api_key_ref: formData.get("integracion_api_key_ref") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Datos no válidos" };
+  }
+  const d = parsed.data;
+
+  const config: Record<string, string> = { tipo: d.tipo };
+  const endpoint = limpio(d.endpoint);
+  const apiKeyRef = limpio(d.api_key_ref);
+  if (endpoint) config.endpoint = endpoint;
+  if (apiKeyRef) config.api_key_ref = apiKeyRef;
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("providers")
+    .update({ integracion_config: config as unknown as Json })
     .eq("id", d.provider_id)
     .eq("tenant_id", tenantId);
   if (error) return { error: `No se pudo guardar: ${error.message}` };
@@ -106,6 +168,10 @@ export async function previsualizarFuente(providerId: string): Promise<PreviewRe
     imagen: cfg.imagen as string | undefined,
     enlace: cfg.enlace as string | undefined,
     grupo: cfg.grupo as string | undefined,
+    descripcion: cfg.descripcion as string | undefined,
+    duracion: cfg.duracion as string | undefined,
+    punto_encuentro: cfg.punto_encuentro as string | undefined,
+    solo_gratuitos: cfg.solo_gratuitos === true,
   };
 
   const r = await scrapeFuente(prov.fuente_url, selectores);
@@ -120,6 +186,30 @@ export async function previsualizarFuente(providerId: string): Promise<PreviewRe
     })),
     notas: r.notas,
   };
+}
+
+// Actualización masiva: re-scrape de todos los proveedores del tenant con
+// fuente configurada. Usa el cliente RLS del operador (capacidad catalog.edit).
+export async function ejecutarActualizacionMasiva(): Promise<
+  ResultadoBatch & { error?: string }
+> {
+  const ctx = await requirePanelContext();
+  assertCapacidad(ctx, "catalog.edit");
+  try {
+    const supabase = await createSupabaseServerClient();
+    const r = await actualizarCatalogoTenant(ctx.currentTenant.id, supabase);
+    revalidateTag(catalogCacheTag(ctx.currentTenant.slug), "max");
+    revalidatePath("/panel/products");
+    revalidatePath("/panel/products/import");
+    return r;
+  } catch (e) {
+    return {
+      tenantId: ctx.currentTenant.id,
+      proveedores: [],
+      totales: { detectados: 0, creados: 0, actualizados: 0, errores: 0 },
+      error: e instanceof Error ? e.message : "Error en la actualización masiva",
+    };
+  }
 }
 
 export async function ejecutarImportacion(

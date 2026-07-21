@@ -69,6 +69,13 @@ export const DEFAULT_UI: Record<string, Record<string, string>> = {
     editItem: "Editar",
     dateLabel: "Fecha",
     today: "Hoy",
+    soldOut: "Agotado",
+    checkingAvailability: "Comprobando disponibilidad…",
+    fewLeft: "Últimas plazas",
+    seatsLeft: "plazas disponibles",
+    maxSeats: "Has alcanzado el máximo de plazas para esta fecha.",
+    about: "Sobre la experiencia",
+    meetingPoint: "Punto de encuentro",
   },
   en: {
     concierge: "Digital concierge",
@@ -131,6 +138,13 @@ export const DEFAULT_UI: Record<string, Record<string, string>> = {
     editItem: "Edit",
     dateLabel: "Date",
     today: "Today",
+    soldOut: "Sold out",
+    checkingAvailability: "Checking availability…",
+    fewLeft: "Few spots left",
+    seatsLeft: "seats available",
+    maxSeats: "You've reached the maximum seats for this date.",
+    about: "About the experience",
+    meetingPoint: "Meeting point",
   },
 };
 

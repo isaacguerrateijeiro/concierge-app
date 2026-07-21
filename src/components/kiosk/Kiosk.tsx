@@ -268,6 +268,7 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
               />
               {detailSlug ? (
                 <DetailScreen
+                  key={detailSlug}
                   catalog={catalog}
                   lang={lang}
                   nodeSlug={detailSlug}

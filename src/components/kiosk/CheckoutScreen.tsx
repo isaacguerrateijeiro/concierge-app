@@ -36,6 +36,12 @@ export default function CheckoutScreen({
   const [error, setError] = useState<string | null>(null);
   const [intento, setIntento] = useState(0);
   const sessionIdRef = useRef<string | null>(null);
+  // Ref al callback para invocarlo desde el efecto sin añadirlo a las
+  // dependencias (evita relanzar la creación del pedido en un re-render).
+  const onCompletedRef = useRef(onCompleted);
+  useEffect(() => {
+    onCompletedRef.current = onCompleted;
+  }, [onCompleted]);
 
   // El carrito y el idioma quedan fijados al montar la pantalla: así el efecto
   // solo se relanza al reintentar y nunca creamos un pedido duplicado por un
@@ -48,7 +54,13 @@ export default function CheckoutScreen({
     crearCheckoutParaCarrito(cartInicial, langInicial)
       .then((res) => {
         if (!activo) return;
-        sessionIdRef.current = res.clientSecret.split("_secret_")[0];
+        // Reserva gratuita: el pedido ya queda confirmado en el servidor, así
+        // que saltamos el Embedded Checkout y vamos directos a la confirmación.
+        if (res.tipo === "gratis") {
+          onCompletedRef.current(res.sessionId);
+          return;
+        }
+        sessionIdRef.current = res.sessionId;
         setClientSecret(res.clientSecret);
       })
       .catch((e: unknown) => {

@@ -8,6 +8,7 @@ import type {
   CategoriaPanel,
   ServicioPanel,
   PriceTierPanel,
+  AvailabilityPanel,
   OpcionPadre,
   I18n,
 } from "@/lib/panel/catalog";
@@ -20,6 +21,16 @@ interface TierDraft {
   label_en: string;
   precio: string;
   orden: number;
+}
+
+interface AvailDraft {
+  fecha: string;
+  capacidad: string;
+  reservados: number;
+}
+
+function availFromPanel(a: AvailabilityPanel): AvailDraft {
+  return { fecha: a.fecha, capacidad: String(a.capacidad), reservados: a.reservados };
 }
 
 function tierFromPanel(t: PriceTierPanel): TierDraft {
@@ -64,8 +75,16 @@ export function ServiceForm({
   const [tiers, setTiers] = useState<TierDraft[]>(
     (servicio?.tiers ?? []).map(tierFromPanel)
   );
+  const [capacidadDiaria, setCapacidadDiaria] = useState<string>(
+    servicio?.capacidad_diaria != null ? String(servicio.capacidad_diaria) : ""
+  );
+  const [overrides, setOverrides] = useState<AvailDraft[]>(
+    (servicio?.availability ?? []).map(availFromPanel)
+  );
   const t = (servicio?.titulo_i18n ?? {}) as I18n;
   const sub = (servicio?.subtitulo_i18n ?? {}) as I18n;
+  const desc = (servicio?.descripcion_i18n ?? {}) as I18n;
+  const pe = (servicio?.punto_encuentro_i18n ?? {}) as I18n;
   const esServicio = tipoNodo === "servicio";
   const esIntegrado = esServicio && tipoPago === "integrado";
 
@@ -81,6 +100,18 @@ export function ServiceForm({
   function updateTier(idx: number, field: keyof TierDraft, value: string | number) {
     setTiers((prev) =>
       prev.map((t, i) => (i === idx ? { ...t, [field]: value } : t))
+    );
+  }
+
+  function addOverride() {
+    setOverrides((prev) => [...prev, { fecha: "", capacidad: "", reservados: 0 }]);
+  }
+  function removeOverride(idx: number) {
+    setOverrides((prev) => prev.filter((_, i) => i !== idx));
+  }
+  function updateOverride(idx: number, field: "fecha" | "capacidad", value: string) {
+    setOverrides((prev) =>
+      prev.map((o, i) => (i === idx ? { ...o, [field]: value } : o))
     );
   }
 
@@ -139,6 +170,36 @@ export function ServiceForm({
               </label>
               <input className="input" name={`subtitulo_${l}`} defaultValue={sub[l] ?? ""} />
             </div>
+          </div>
+        ))}
+
+        {/* Descripción larga + punto de encuentro (por idioma) */}
+        {locales.map((l) => (
+          <div className="field" key={`desc_${l}`}>
+            <label>
+              Descripción <span className="hint">{LOCALE_LABEL[l] ?? l}</span>
+            </label>
+            <textarea
+              className="input"
+              name={`descripcion_${l}`}
+              defaultValue={desc[l] ?? ""}
+              rows={3}
+              placeholder="Texto largo que se muestra en el detalle del kiosko."
+            />
+          </div>
+        ))}
+
+        {locales.map((l) => (
+          <div className="field" key={`pe_${l}`}>
+            <label>
+              Punto de encuentro <span className="hint">{LOCALE_LABEL[l] ?? l}</span>
+            </label>
+            <input
+              className="input"
+              name={`punto_encuentro_${l}`}
+              defaultValue={pe[l] ?? ""}
+              placeholder="p. ej. Plaza Mayor, Centro"
+            />
           </div>
         ))}
 
@@ -318,6 +379,78 @@ export function ServiceForm({
                 ))}
                 <button type="button" onClick={addTier} className="btn btn-ghost btn-sm">
                   + Añadir tarifa
+                </button>
+              </div>
+            )}
+
+            {/* Editor de stock / disponibilidad (solo integrado) */}
+            {esIntegrado && (
+              <div className="form-section" style={{ marginTop: 20, padding: "20px 24px", background: "var(--bone-2, #f4f4f0)", borderRadius: 12, border: "1px solid var(--line, #e0e0d8)" }}>
+                <div className="fs-title" style={{ marginBottom: 4 }}>Disponibilidad y stock</div>
+                <div className="fs-desc" style={{ marginBottom: 14 }}>
+                  Capacidad de plazas por día. El calendario del kiosko marca los días agotados y, al pagar, se descuenta el stock. Déjalo vacío para no limitar plazas.
+                </div>
+
+                <div className="field" style={{ maxWidth: 260 }}>
+                  <label>Capacidad diaria por defecto <span className="hint">plazas/día</span></label>
+                  <input
+                    className="input"
+                    name="capacidad_diaria"
+                    type="number"
+                    min={0}
+                    value={capacidadDiaria}
+                    onChange={(e) => setCapacidadDiaria(e.target.value)}
+                    placeholder="p. ej. 50 (vacío = ilimitado)"
+                  />
+                </div>
+
+                <div className="fs-desc" style={{ margin: "16px 0 10px" }}>
+                  Excepciones por fecha <span className="hint">anulan la capacidad diaria ese día</span>
+                </div>
+                <input type="hidden" name="avail_count" value={overrides.length} />
+                {overrides.map((o, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <div className="field" style={{ minWidth: 160, flex: "0 0 auto" }}>
+                      {i === 0 && <label>Fecha</label>}
+                      <input
+                        className="input"
+                        type="date"
+                        value={o.fecha}
+                        onChange={(e) => updateOverride(i, "fecha", e.target.value)}
+                        name={`avail_fecha_${i}`}
+                        required
+                      />
+                    </div>
+                    <div className="field" style={{ minWidth: 120, flex: "0 0 auto" }}>
+                      {i === 0 && <label>Capacidad</label>}
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        placeholder="0"
+                        value={o.capacidad}
+                        onChange={(e) => updateOverride(i, "capacidad", e.target.value)}
+                        name={`avail_capacidad_${i}`}
+                        required
+                      />
+                    </div>
+                    {o.reservados > 0 && (
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 12.5, color: "var(--muted)", paddingBottom: 12 }}>
+                        {o.reservados} reservadas
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeOverride(i)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ alignSelf: "flex-end", color: "var(--muted)" }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button type="button" onClick={addOverride} className="btn btn-ghost btn-sm">
+                  + Añadir fecha
                 </button>
               </div>
             )}

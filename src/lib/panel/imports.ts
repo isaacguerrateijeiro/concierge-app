@@ -7,6 +7,7 @@ export interface FuenteProveedor {
   slug: string;
   fuente_url: string | null;
   fuente_config: Record<string, unknown>;
+  integracion_config: Record<string, unknown>;
   ultimaImportacion: {
     estado: string;
     detectados: number;
@@ -22,7 +23,7 @@ export async function listarFuentes(tenantId: string): Promise<FuenteProveedor[]
 
   const { data: provs, error } = await supabase
     .from("providers")
-    .select("id, nombre, slug, fuente_url, fuente_config")
+    .select("id, nombre, slug, fuente_url, fuente_config, integracion_config")
     .eq("tenant_id", tenantId)
     .order("nombre", { ascending: true });
   if (error) throw new Error(`listarFuentes: ${error.message}`);
@@ -53,6 +54,7 @@ export async function listarFuentes(tenantId: string): Promise<FuenteProveedor[]
     slug: p.slug,
     fuente_url: p.fuente_url,
     fuente_config: (p.fuente_config as Record<string, unknown>) ?? {},
+    integracion_config: (p.integracion_config as Record<string, unknown>) ?? {},
     ultimaImportacion: ultimaPorProveedor.get(p.id) ?? null,
   }));
 }
