@@ -27,13 +27,18 @@ export async function GET(request: NextRequest) {
   const v = ventanaPara(rango);
   const c = await listarClientes(ctx.currentTenant.id, v.desde, v.hasta);
 
-  const cabecera = ["Contacto", "Canal", "Pedidos", "Gasto", "Ultimo"];
+  const cabecera = ["Id", "Contactos", "Canales", "Pedidos", "Gasto", "Ultimo"];
   const lineas = [cabecera.join(",")];
   for (const ct of c.contactos) {
+    const contactos = (ct.contactos.length ? ct.contactos : [{ destino: ct.destino, canal: ct.canal }])
+      .map((a) => a.destino)
+      .join(" | ");
+    const canales = (ct.canales.length ? ct.canales : [ct.canal]).join(" | ");
     lineas.push(
       [
-        csvCampo(ct.destino),
-        csvCampo(ct.canal),
+        csvCampo(ct.id),
+        csvCampo(contactos),
+        csvCampo(canales),
         String(ct.pedidos),
         ct.gasto.toFixed(2),
         csvCampo(fmtFechaHora(ct.ultima)),

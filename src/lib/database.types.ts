@@ -1251,6 +1251,10 @@ export type Database = {
       }
       get_order_status: { Args: { p_session_id: string }; Returns: Json }
       get_recibo: { Args: { p_token: string }; Returns: Json }
+      panel_cliente_detalle: {
+        Args: { p_cliente_id: string; p_tenant: string }
+        Returns: Json
+      }
       panel_clientes: {
         Args: { p_desde: string; p_hasta: string; p_tenant: string }
         Returns: Json

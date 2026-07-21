@@ -14,6 +14,10 @@ const CANAL_EMOJI: Record<string, string> = {
   email: "✉️", sms: "💬", whatsapp: "🟢", print: "🖨️",
 };
 
+function etiquetaCanales(canales: string[]): string {
+  return canales.map((c) => `${CANAL_EMOJI[c] ?? ""} ${CANAL_LABEL[c] ?? c}`.trim()).join(" · ");
+}
+
 export default async function CustomersPage({
   searchParams,
 }: {
@@ -28,7 +32,7 @@ export default async function CustomersPage({
   const puedeExportar = puedeCapacidad(ctx, "customers.export");
 
   const segmentos = [
-    { ic: "👥", bg: "var(--info-soft)", nombre: "Contactos", count: c.total, desc: "Han recibido comprobante" },
+    { ic: "👥", bg: "var(--info-soft)", nombre: "Clientes", count: c.total, desc: "Unificados por email/teléfono" },
     { ic: "🔁", bg: "var(--success-soft)", nombre: "Recurrentes", count: c.recurrentes, desc: "Más de un pedido" },
     { ic: "✨", bg: "var(--accent-soft)", nombre: "Nuevos", count: c.nuevos, desc: "Un único pedido" },
     { ic: "📡", bg: "var(--bone-2)", nombre: "Canales", count: Object.keys(c.porCanal).length, desc: Object.entries(c.porCanal).map(([k, n]) => `${CANAL_LABEL[k] ?? k}: ${n}`).join(" · ") || "—" },
@@ -61,7 +65,7 @@ export default async function CustomersPage({
           <div>
             <h3>Clientes captados</h3>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 2 }}>
-              Contactos enmascarados por privacidad{puedeExportar ? ". Exporta para ver el detalle completo." : "."}
+              Contactos enmascarados. Si el email o el teléfono coinciden (o aparecen en el mismo pedido), se unifican en un solo cliente. Pulsa una fila para ver la ficha.
             </p>
           </div>
         </div>
@@ -70,7 +74,7 @@ export default async function CustomersPage({
             <thead>
               <tr>
                 <th>Contacto</th>
-                <th>Canal</th>
+                <th>Canales</th>
                 <th>Pedidos</th>
                 <th>Gasto</th>
                 <th>Último</th>
@@ -78,17 +82,34 @@ export default async function CustomersPage({
             </thead>
             <tbody>
               {c.contactos.length === 0 ? (
-                <tr><td colSpan={5}><div className="empty-note">Aún no hay clientes captados en este periodo. Se registran cuando un cliente recibe su comprobante por email, SMS o WhatsApp.</div></td></tr>
+                <tr>
+                  <td colSpan={5}>
+                    <div className="empty-note">
+                      Aún no hay clientes captados en este periodo. Se registran cuando un cliente recibe su comprobante por email, SMS o WhatsApp.
+                    </div>
+                  </td>
+                </tr>
               ) : (
-                c.contactos.map((ct) => (
-                  <tr key={ct.destino}>
-                    <td className="td-strong mono">{maskContacto(ct.destino)}</td>
-                    <td>{CANAL_EMOJI[ct.canal] ?? ""} {CANAL_LABEL[ct.canal] ?? ct.canal}</td>
-                    <td className="td-strong">{ct.pedidos}</td>
-                    <td className="mono">{fmtEuro(ct.gasto, true)}</td>
-                    <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{fmtFechaHora(ct.ultima)}</td>
-                  </tr>
-                ))
+                c.contactos.map((ct) => {
+                  const alias = ct.contactos.length > 0 ? ct.contactos : [{ destino: ct.destino, canal: ct.canal }];
+                  return (
+                    <tr key={ct.id || ct.destino}>
+                      <td>
+                        <Link
+                          href={`/panel/customers/${ct.id}`}
+                          className="td-strong mono"
+                          style={{ color: "inherit", textDecoration: "none" }}
+                        >
+                          {alias.map((a) => maskContacto(a.destino)).join(" · ")}
+                        </Link>
+                      </td>
+                      <td>{etiquetaCanales(ct.canales.length ? ct.canales : [ct.canal])}</td>
+                      <td className="td-strong">{ct.pedidos}</td>
+                      <td className="mono">{fmtEuro(ct.gasto, true)}</td>
+                      <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{fmtFechaHora(ct.ultima)}</td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

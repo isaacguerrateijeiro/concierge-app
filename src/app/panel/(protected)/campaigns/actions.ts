@@ -173,19 +173,34 @@ export async function enviarCampana(
   if (!c) return { error: "Campaña no encontrada." };
   if (c.estado === "enviada") return { error: "La campaña ya fue enviada." };
 
-  // Audiencia: contactos del último año por el canal de la campaña y segmento.
+  // Audiencia: clientes unificados del último año. Expandimos cada cliente a
+  // todos sus destinos del canal de la campaña (sin duplicar el mismo destino).
   const v = ventanaPara("90d");
   const desde = new Date(Date.now() - 365 * 86400000);
   const clientes = await listarClientes(ctx.currentTenant.id, desde, v.hasta);
-  let contactos = clientes.contactos.filter((x) => x.canal === c.canal);
-  if (c.segmento === "recurrentes") contactos = contactos.filter((x) => x.pedidos > 1);
-  else if (c.segmento === "nuevos") contactos = contactos.filter((x) => x.pedidos === 1);
+  let audiencia = clientes.contactos.filter((x) => x.canales.includes(c.canal) || x.canal === c.canal);
+  if (c.segmento === "recurrentes") audiencia = audiencia.filter((x) => x.pedidos > 1);
+  else if (c.segmento === "nuevos") audiencia = audiencia.filter((x) => x.pedidos === 1);
+
+  const destinos = new Set<string>();
+  for (const ct of audiencia) {
+    const aliases = ct.contactos.length > 0 ? ct.contactos : [{ destino: ct.destino, canal: ct.canal }];
+    for (const a of aliases) {
+      if (a.canal === c.canal && a.destino) destinos.add(a.destino);
+    }
+  }
 
   const remitente = (await leerConfigEntrega(ctx.currentTenant.id)).remitente;
   let enviados = 0;
   let fallidos = 0;
-  for (const ct of contactos) {
-    const ok = await enviarUno(c.canal as "email" | "sms" | "whatsapp", remitente, ct.destino, c.asunto, c.mensaje);
+  for (const destino of destinos) {
+    const ok = await enviarUno(
+      c.canal as "email" | "sms" | "whatsapp",
+      remitente,
+      destino,
+      c.asunto,
+      c.mensaje
+    );
     if (ok) enviados++;
     else fallidos++;
   }
@@ -194,7 +209,7 @@ export async function enviarCampana(
     .from("campaigns")
     .update({
       estado: "enviada",
-      audiencia: contactos.length,
+      audiencia: destinos.size,
       enviados,
       fallidos,
       enviada_at: new Date().toISOString(),
@@ -206,7 +221,7 @@ export async function enviarCampana(
   revalidatePath("/panel/campaigns");
   return {
     ok: true,
-    aviso: contactos.length === 0
+    aviso: destinos.size === 0
       ? "No hay contactos en este segmento todavía. La campaña se marcó como enviada (0 destinatarios)."
       : `Campaña enviada: ${enviados} entregados, ${fallidos} fallidos.`,
   };
