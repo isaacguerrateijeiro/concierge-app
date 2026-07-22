@@ -98,3 +98,106 @@ export async function guardarLegal(
   revalidatePath("/panel/settings");
   return { ok: true };
 }
+
+const reglaInputSchema = z.object({
+  providerId: z.string().uuid(),
+  tipoCalculo: z.enum(["porcentaje", "fijo"]),
+  plataforma: z.coerce.number().min(0).max(1_000_000),
+  operador: z.coerce.number().min(0).max(1_000_000),
+});
+
+// Guarda las comisiones de ámbito proveedor (plataforma + operador) para
+// todos los proveedores del formulario. El remanente es siempre del proveedor
+// de servicio; Stripe le transfiere esa parte tras el cobro.
+export async function guardarComisionesProveedor(
+  _prev: FormState,
+  formData: FormData
+): Promise<FormState> {
+  const ctx = await requirePanelContext();
+  assertCapacidad(ctx, "settings.manage");
+
+  const providerIds = formData.getAll("provider_id").map(String);
+  if (providerIds.length === 0) {
+    return { error: "No hay proveedores que guardar." };
+  }
+
+  const filas: z.infer<typeof reglaInputSchema>[] = [];
+  for (const providerId of providerIds) {
+    const parsed = reglaInputSchema.safeParse({
+      providerId,
+      tipoCalculo: formData.get(`tipo_${providerId}`) ?? "porcentaje",
+      plataforma: formData.get(`plataforma_${providerId}`) ?? 0,
+      operador: formData.get(`operador_${providerId}`) ?? 0,
+    });
+    if (!parsed.success) {
+      return { error: parsed.error.issues[0]?.message ?? "Datos de comisión no válidos." };
+    }
+    const f = parsed.data;
+    if (f.tipoCalculo === "porcentaje" && f.plataforma + f.operador > 100) {
+      return {
+        error: "La suma de plataforma + operador no puede superar el 100 % en ningún proveedor.",
+      };
+    }
+    filas.push(f);
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: propios, error: errP } = await supabase
+    .from("providers")
+    .select("id")
+    .eq("tenant_id", ctx.currentTenant.id)
+    .in(
+      "id",
+      filas.map((f) => f.providerId)
+    );
+  if (errP) return { error: `No se pudieron validar proveedores: ${errP.message}` };
+  const permitidos = new Set((propios ?? []).map((p) => p.id));
+  if (filas.some((f) => !permitidos.has(f.providerId))) {
+    return { error: "Hay proveedores que no pertenecen a este tenant." };
+  }
+
+  for (const f of filas) {
+    for (const benef of ["plataforma", "operador"] as const) {
+      const valor = benef === "plataforma" ? f.plataforma : f.operador;
+      const activo = valor > 0;
+      const { data: existente, error: errSel } = await supabase
+        .from("commission_rules")
+        .select("id")
+        .eq("tenant_id", ctx.currentTenant.id)
+        .eq("ambito", "proveedor")
+        .eq("provider_id", f.providerId)
+        .eq("beneficiario", benef)
+        .maybeSingle();
+      if (errSel) return { error: `No se pudo leer la regla: ${errSel.message}` };
+
+      if (existente) {
+        const { error } = await supabase
+          .from("commission_rules")
+          .update({
+            tipo_calculo: f.tipoCalculo,
+            valor,
+            activo,
+            moneda: f.tipoCalculo === "fijo" ? "EUR" : null,
+          })
+          .eq("id", existente.id);
+        if (error) return { error: `No se pudo actualizar la comisión: ${error.message}` };
+      } else if (activo) {
+        const { error } = await supabase.from("commission_rules").insert({
+          tenant_id: ctx.currentTenant.id,
+          ambito: "proveedor",
+          provider_id: f.providerId,
+          service_id: null,
+          beneficiario: benef,
+          tipo_calculo: f.tipoCalculo,
+          valor,
+          activo: true,
+          moneda: f.tipoCalculo === "fijo" ? "EUR" : null,
+        });
+        if (error) return { error: `No se pudo crear la comisión: ${error.message}` };
+      }
+    }
+  }
+
+  revalidatePath("/panel/settings");
+  return { ok: true };
+}

@@ -1,7 +1,9 @@
 import { requirePanelContext, puedeCapacidad } from "@/lib/auth/context";
 import { getTenantConfig } from "@/lib/panel/tenant";
 import { listarProveedoresConnect, maskRemitente } from "@/lib/panel/integraciones";
+import { listarComisionesProveedor } from "@/lib/panel/commissions";
 import { EntregaForm, LegalForm } from "./SettingsForms";
+import { CommissionsForm } from "./CommissionsForm";
 import ConnectActions from "./ConnectActions";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +21,10 @@ export default async function SettingsPage() {
     return <div className="empty-note">No tienes permisos para ver integraciones y pagos.</div>;
   }
 
-  const [tenant, proveedores] = await Promise.all([
+  const [tenant, proveedores, comisiones] = await Promise.all([
     getTenantConfig(ctx.currentTenant.id),
     listarProveedoresConnect(ctx.currentTenant.id),
+    listarComisionesProveedor(ctx.currentTenant.id),
   ]);
 
   const remitente = (tenant.entregaConfig.remitente as Record<string, string>) ?? {};
@@ -36,6 +39,8 @@ export default async function SettingsPage() {
 
   return (
     <div style={{ display: "grid", gap: 22 }}>
+      <CommissionsForm proveedores={comisiones} />
+
       <div className="table-wrap">
         <div className="tw-head">
           <div>

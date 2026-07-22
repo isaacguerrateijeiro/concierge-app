@@ -93,3 +93,39 @@ export function calcularComisionesLinea(params: {
 
   return resultado;
 }
+
+/** Preview del reparto sobre una base (p.ej. 100 €) para UI del panel. */
+export function previewReparto(params: {
+  plataforma: { tipo_calculo: TipoCalculo; valor: number } | null;
+  operador: { tipo_calculo: TipoCalculo; valor: number } | null;
+  base?: number;
+}): { plataforma: number; operador: number; proveedor: number } {
+  const base = params.base ?? 100;
+  const reglas: ReglaComision[] = [];
+  if (params.plataforma && params.plataforma.valor > 0) {
+    reglas.push({
+      beneficiario: "plataforma",
+      ambito: "proveedor",
+      tipo_calculo: params.plataforma.tipo_calculo,
+      valor: params.plataforma.valor,
+    });
+  }
+  if (params.operador && params.operador.valor > 0) {
+    reglas.push({
+      beneficiario: "operador",
+      ambito: "proveedor",
+      tipo_calculo: params.operador.tipo_calculo,
+      valor: params.operador.valor,
+    });
+  }
+  const calc = calcularComisionesLinea({
+    precioUnitario: base,
+    cantidad: 1,
+    reglas,
+  });
+  return {
+    plataforma: calc.find((c) => c.beneficiario === "plataforma")?.importe ?? 0,
+    operador: calc.find((c) => c.beneficiario === "operador")?.importe ?? 0,
+    proveedor: calc.find((c) => c.beneficiario === "proveedor")?.importe ?? 0,
+  };
+}
