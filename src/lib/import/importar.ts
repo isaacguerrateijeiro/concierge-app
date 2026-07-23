@@ -2,7 +2,25 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/database.types";
-import { scrapeFuente, slugify, type FuenteConfig, type ScrapedItem, type TierConfig } from "./scraper";
+import {
+  scrapeFuente,
+  scrapeFuentes,
+  slugify,
+  type FuenteConfig,
+  type ScrapedItem,
+  type TierConfig,
+} from "./scraper";
+
+/** Normaliza URL/ref de origen para comparar listados vs PDP. */
+export function normalizeFuenteRef(ref: string): string {
+  try {
+    const u = new URL(ref);
+    const path = u.pathname.replace(/\/+$/, "") || "";
+    return `${u.protocol}//${u.host.toLowerCase()}${path}${u.search}${u.hash}`.toLowerCase();
+  } catch {
+    return ref.trim().toLowerCase();
+  }
+}
 
 type DbClient = SupabaseClient<Database>;
 
@@ -98,9 +116,36 @@ export async function importarProveedor(
     throw new Error("No hay ninguna categoría donde colocar los productos importados.");
   }
 
-  const scrape = await scrapeFuente(prov.fuente_url, selectores);
+  // Listados adicionales (p.ej. Big Bus: Bus Tours + Excursiones).
+  const entradasScrape: { url: string; grupo?: string | null }[] = [
+    { url: prov.fuente_url },
+  ];
+  if (Array.isArray(cfg.grupos)) {
+    for (const g of cfg.grupos) {
+      if (!g || typeof g !== "object" || Array.isArray(g)) continue;
+      const url = typeof (g as { url?: unknown }).url === "string" ? (g as { url: string }).url : "";
+      const label =
+        typeof (g as { label?: unknown }).label === "string"
+          ? (g as { label: string }).label
+          : null;
+      if (!url) continue;
+      if (entradasScrape.some((e) => normalizeFuenteRef(e.url) === normalizeFuenteRef(url))) {
+        // Misma URL que la principal: solo aporta etiqueta de grupo.
+        const principal = entradasScrape[0];
+        if (!principal.grupo && label) principal.grupo = label;
+        continue;
+      }
+      entradasScrape.push({ url, grupo: label });
+    }
+  }
+
+  const scrape =
+    entradasScrape.length === 1
+      ? await scrapeFuente(entradasScrape[0].url, selectores)
+      : await scrapeFuentes(entradasScrape, selectores);
   const notas = [...scrape.notas];
   const ahora = new Date().toISOString();
+  const listadoRefs = new Set(entradasScrape.map((e) => normalizeFuenteRef(e.url)));
 
   // Servicios ya importados de este proveedor (idempotencia por fuente_ref).
   const { data: existentesRaw } = await supabase
@@ -116,6 +161,7 @@ export async function importarProveedor(
     slug: string;
     tipo_nodo: string;
     estado: string;
+    fuente_ref: string;
     descripcion_i18n: Record<string, string>;
     instrucciones_i18n: Record<string, string>;
     punto_encuentro_i18n: Record<string, string>;
@@ -125,11 +171,12 @@ export async function importarProveedor(
   const existentes = new Map<string, Existente>();
   for (const e of existentesRaw ?? []) {
     if (!e.fuente_ref) continue;
-    existentes.set(e.fuente_ref, {
+    existentes.set(normalizeFuenteRef(e.fuente_ref), {
       id: e.id,
       slug: e.slug,
       tipo_nodo: e.tipo_nodo,
       estado: e.estado,
+      fuente_ref: e.fuente_ref,
       descripcion_i18n: asI18n(e.descripcion_i18n),
       instrucciones_i18n: asI18n(e.instrucciones_i18n),
       punto_encuentro_i18n: asI18n(e.punto_encuentro_i18n),
@@ -152,8 +199,8 @@ export async function importarProveedor(
   );
   for (const label of etiquetas) {
     const ref = `grupo:${slugify(label)}`;
-    vistos.add(ref);
-    const ya = existentes.get(ref);
+    vistos.add(normalizeFuenteRef(ref));
+    const ya = existentes.get(normalizeFuenteRef(ref));
     if (ya) {
       grupos.set(label, ya.id);
       // Reapareció / sigue en fuente → publicado y visible.
@@ -205,9 +252,15 @@ export async function importarProveedor(
   // 2) Upsert de cada item como hoja 'servicio' publicada (derivado a origen).
   for (const item of scrape.items) {
     try {
-      vistos.add(item.ref);
+      const refNorm = normalizeFuenteRef(item.ref);
+      // Ignorar tarjetas cuyo enlace es el propio listado (no es un producto).
+      if (listadoRefs.has(refNorm)) {
+        notas.push(`Omitido (enlace de listado): ${item.titulo}`);
+        continue;
+      }
+      vistos.add(refNorm);
       const parentId = item.grupo ? grupos.get(item.grupo.trim()) ?? null : null;
-      const existe = existentes.get(item.ref);
+      const existe = existentes.get(refNorm);
       const fila = mapItem(item, { tenantId, providerId, categoryId, parentId, ahora });
 
       let serviceId: string;
@@ -290,11 +343,24 @@ export async function importarProveedor(
   }
 
   // 3) Lo que tenía fuente_ref y ya no aparece en el scrape → despublicado.
-  // Seguridad: no despublicar si la fuente falló o no devolvió nada.
-  if (scrape.metodo !== "ninguno" && scrape.items.length > 0) {
+  // Seguridad: solo si la cobertura del scrape sobre lo ya importado es alta
+  // (evita vaciar el catálogo cuando el listado trae 1 JSON-LD o una página incompleta).
+  const hojasExistentes = (existentesRaw ?? []).filter(
+    (e) => e.tipo_nodo === "servicio" && e.fuente_ref && !e.fuente_ref.startsWith("grupo:")
+  );
+  const hojasVistas = hojasExistentes.filter((e) =>
+    vistos.has(normalizeFuenteRef(e.fuente_ref!))
+  ).length;
+  const cobertura =
+    hojasExistentes.length === 0 ? 1 : hojasVistas / hojasExistentes.length;
+
+  if (scrape.metodo !== "ninguno" && scrape.items.length > 0 && cobertura >= 0.6) {
     for (const e of existentesRaw ?? []) {
-      if (!e.fuente_ref || vistos.has(e.fuente_ref)) continue;
+      if (!e.fuente_ref) continue;
+      const refNorm = normalizeFuenteRef(e.fuente_ref);
+      if (vistos.has(refNorm)) continue;
       if (e.estado === "despublicado") continue;
+      // No despublicar grupos si aún tienen hijos vistos (se gestionan por etiqueta).
       const { error } = await supabase
         .from("services")
         .update({
@@ -316,6 +382,10 @@ export async function importarProveedor(
     }
   } else if (scrape.items.length === 0) {
     notas.push("Sin items en fuente: no se despublica nada (protección).");
+  } else if (cobertura < 0.6) {
+    notas.push(
+      `Cobertura insuficiente (${hojasVistas}/${hojasExistentes.length}): no se despublica nada.`
+    );
   }
 
   const estado: ResultadoImportacion["estado"] =

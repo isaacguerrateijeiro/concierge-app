@@ -214,6 +214,7 @@ export async function ejecutarActualizacionMasiva(): Promise<
     const supabase = await createSupabaseServerClient();
     const r = await actualizarCatalogoTenant(ctx.currentTenant.id, supabase);
     revalidateTag(catalogCacheTag(ctx.currentTenant.slug), "max");
+    revalidatePath("/", "layout");
     revalidatePath("/panel/products");
     revalidatePath("/panel/products/import");
     return r;
@@ -236,6 +237,7 @@ export async function ejecutarImportacion(
   try {
     const r = await importarProveedor(ctx.currentTenant.id, providerId);
     revalidateTag(catalogCacheTag(ctx.currentTenant.slug), "max");
+    revalidatePath("/", "layout");
     revalidatePath("/panel/products");
     revalidatePath("/panel/products/import");
     return r;

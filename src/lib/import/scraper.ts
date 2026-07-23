@@ -501,3 +501,31 @@ export async function scrapeFuente(
 
   return { items: [], metodo: "ninguno", notas };
 }
+
+/** Varias URLs de listado (p.ej. fuente_config.grupos de Big Bus). */
+export async function scrapeFuentes(
+  entradas: { url: string; grupo?: string | null }[],
+  cfg: FuenteConfig = {}
+): Promise<ScrapeResult> {
+  const notas: string[] = [];
+  const items: ScrapedItem[] = [];
+  let metodo: ScrapeResult["metodo"] = "ninguno";
+
+  for (const entrada of entradas) {
+    if (!entrada.url) continue;
+    const r = await scrapeFuente(entrada.url, cfg);
+    for (const n of r.notas) notas.push(`${entrada.url}: ${n}`);
+    if (r.metodo !== "ninguno") {
+      // Preferir selectores si alguna página los usó (listados Big Bus).
+      if (metodo === "ninguno" || r.metodo === "selectores") metodo = r.metodo;
+    }
+    for (const it of r.items) {
+      items.push({
+        ...it,
+        grupo: (it.grupo ?? entrada.grupo ?? null) || null,
+      });
+    }
+  }
+
+  return { items: dedupe(items), metodo, notas };
+}

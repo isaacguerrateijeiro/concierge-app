@@ -18,7 +18,7 @@ export type {
 // Cada cuántos segundos se revalida el catálogo cacheado. El catálogo cambia
 // poco, así que un valor alto da rapidez y resiste cortes de red; cuando el
 // panel (Fase 3) edite datos, invalidaremos de inmediato con revalidateCatalog.
-const CATALOG_REVALIDATE_SECONDS = 300;
+const CATALOG_REVALIDATE_SECONDS = 60;
 
 // Etiqueta de caché para poder invalidar el catálogo bajo demanda.
 export function catalogCacheTag(tenantSlug: string): string {
