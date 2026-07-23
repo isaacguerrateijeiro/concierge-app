@@ -16,6 +16,15 @@ export interface AddressPick {
   lon: number;
 }
 
+type RawSuggestion = {
+  id: string;
+  label: string;
+  lat: number | null;
+  lon: number | null;
+  placeId: string | null;
+  provider: "google" | "nominatim";
+};
+
 interface AddressAutocompleteProps {
   value: string;
   onChange: (value: string) => void;
@@ -23,8 +32,10 @@ interface AddressAutocompleteProps {
   placeholder: string;
   loadingLabel: string;
   emptyLabel: string;
-  attributionLabel: string;
+  attributionGoogle: string;
+  attributionOsm: string;
   inputStyle: CSSProperties;
+  lang?: string;
   minChars?: number;
 }
 
@@ -35,8 +46,10 @@ export default function AddressAutocomplete({
   placeholder,
   loadingLabel,
   emptyLabel,
-  attributionLabel,
+  attributionGoogle,
+  attributionOsm,
   inputStyle,
+  lang = "es",
   minChars = 3,
 }: AddressAutocompleteProps) {
   const listId = useId();
@@ -44,7 +57,9 @@ export default function AddressAutocomplete({
   const seqRef = useRef(0);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [items, setItems] = useState<AddressPick[]>([]);
+  const [resolving, setResolving] = useState(false);
+  const [items, setItems] = useState<RawSuggestion[]>([]);
+  const [provider, setProvider] = useState<"google" | "nominatim" | null>(null);
   const [active, setActive] = useState(-1);
 
   useEffect(() => {
@@ -64,26 +79,18 @@ export default function AddressAutocomplete({
     const timer = window.setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/geocode/autocomplete?q=${encodeURIComponent(q)}`,
+          `/api/geocode/autocomplete?q=${encodeURIComponent(q)}&lang=${encodeURIComponent(lang)}`,
           { signal: ctrl.signal }
         );
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = (await res.json()) as {
-          suggestions?: Array<{
-            id: string;
-            label: string;
-            lat: number;
-            lon: number;
-          }>;
+          suggestions?: RawSuggestion[];
+          provider?: "google" | "nominatim" | null;
         };
         if (seq !== seqRef.current) return;
-        const next = (data.suggestions ?? []).map((s) => ({
-          id: s.id,
-          label: s.label,
-          lat: s.lat,
-          lon: s.lon,
-        }));
+        const next = data.suggestions ?? [];
         setItems(next);
+        setProvider(data.provider ?? null);
         setActive(next.length ? 0 : -1);
       } catch (err) {
         if ((err as { name?: string }).name === "AbortError") return;
@@ -93,13 +100,13 @@ export default function AddressAutocomplete({
       } finally {
         if (seq === seqRef.current) setLoading(false);
       }
-    }, 280);
+    }, 320);
 
     return () => {
       window.clearTimeout(timer);
       ctrl.abort();
     };
-  }, [value, minChars]);
+  }, [value, minChars, lang]);
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -109,11 +116,49 @@ export default function AddressAutocomplete({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  function pick(item: AddressPick) {
-    onPick(item);
-    onChange(item.label);
-    setOpen(false);
-    setItems([]);
+  async function pick(item: RawSuggestion) {
+    setResolving(true);
+    try {
+      let lat = item.lat;
+      let lon = item.lon;
+      let label = item.label;
+
+      if (
+        (lat == null || lon == null) &&
+        item.placeId &&
+        item.provider === "google"
+      ) {
+        const res = await fetch(
+          `/api/geocode/details?placeId=${encodeURIComponent(item.placeId)}&lang=${encodeURIComponent(lang)}`
+        );
+        if (!res.ok) throw new Error(`details ${res.status}`);
+        const details = (await res.json()) as {
+          label: string;
+          lat: number;
+          lon: number;
+        };
+        lat = details.lat;
+        lon = details.lon;
+        label = details.label || label;
+      }
+
+      if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        // Sin coords aún: al menos rellenamos el texto.
+        onChange(label);
+        setOpen(false);
+        return;
+      }
+
+      onPick({ id: item.id, label, lat, lon });
+      onChange(label);
+      setOpen(false);
+      setItems([]);
+    } catch {
+      onChange(item.label);
+      setOpen(false);
+    } finally {
+      setResolving(false);
+    }
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -126,13 +171,15 @@ export default function AddressAutocomplete({
       setActive((i) => (i <= 0 ? items.length - 1 : i - 1));
     } else if (e.key === "Enter" && active >= 0) {
       e.preventDefault();
-      pick(items[active]!);
+      void pick(items[active]!);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
   }
 
   const showPanel = open && value.trim().length >= minChars;
+  const attribution =
+    provider === "google" ? attributionGoogle : attributionOsm;
 
   return (
     <div ref={wrapRef} style={{ position: "relative" }}>
@@ -154,6 +201,7 @@ export default function AddressAutocomplete({
         aria-expanded={showPanel}
         aria-controls={listId}
         aria-autocomplete="list"
+        disabled={resolving}
       />
       {showPanel && (
         <div
@@ -176,7 +224,7 @@ export default function AddressAutocomplete({
           }}
         >
           <div style={{ overflowY: "auto", flex: 1 }}>
-            {loading && items.length === 0 ? (
+            {(loading || resolving) && items.length === 0 ? (
               <div style={hintStyle}>{loadingLabel}</div>
             ) : items.length === 0 ? (
               <div style={hintStyle}>{emptyLabel}</div>
@@ -191,7 +239,7 @@ export default function AddressAutocomplete({
                     aria-selected={selected}
                     className="tap"
                     onMouseEnter={() => setActive(idx)}
-                    onClick={() => pick(item)}
+                    onClick={() => void pick(item)}
                     style={{
                       width: "100%",
                       textAlign: "left",
@@ -223,7 +271,7 @@ export default function AddressAutocomplete({
               background: "rgba(22,20,15,0.03)",
             }}
           >
-            {attributionLabel}
+            {attribution}
           </div>
         </div>
       )}

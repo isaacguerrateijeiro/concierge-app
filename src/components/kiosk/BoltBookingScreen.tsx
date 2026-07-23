@@ -220,6 +220,7 @@ export default function BoltBookingScreen({
           <RouteRow color="#6B4EFF" label={t(lang, "boltDropoff")} pin="square">
             <AddressAutocomplete
               value={dropoff}
+              lang={lang}
               onChange={(v) => {
                 setDropoff(v);
                 setDropoffPick(null);
@@ -231,7 +232,8 @@ export default function BoltBookingScreen({
               placeholder={t(lang, "boltDropoffPlaceholder")}
               loadingLabel={t(lang, "boltAddressLoading")}
               emptyLabel={t(lang, "boltAddressEmpty")}
-              attributionLabel={t(lang, "boltAddressAttribution")}
+              attributionGoogle={t(lang, "boltAddressAttributionGoogle")}
+              attributionOsm={t(lang, "boltAddressAttributionOsm")}
               inputStyle={inputStyle}
             />
             {triedContinue && !dropoffOk && <Hint>{t(lang, "boltDropoffRequired")}</Hint>}
