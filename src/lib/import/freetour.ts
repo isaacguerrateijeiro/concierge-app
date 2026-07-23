@@ -96,6 +96,8 @@ type TourScraped = {
   duracion: string | null;
   subtitulo: string | null;
   imagen: string | null;
+  /** PDP sirve contenido de otro tour: no pisar texto/imagen locales. */
+  pdpCruzada?: boolean;
 };
 
 type Existente = {
@@ -149,6 +151,13 @@ function tituloLimpio(raw: string): string {
 function esTituloGenerico(titulo: string): boolean {
   const t = titulo.trim().toLowerCase();
   return !t || t === "madrid a pie" || t === "free tour madrid" || t === "free tour";
+}
+
+function titulosParecidos(a: string, b: string): boolean {
+  const sa = slugify(a);
+  const sb = slugify(b);
+  if (!sa || !sb) return false;
+  return sa === sb || sa.includes(sb) || sb.includes(sa);
 }
 
 /** "🕙 2 Horas I 💬 Español I 🗓️ Todos los días" → "2 h · Español · Todos los días" */
@@ -542,10 +551,30 @@ export async function importarFreeTour(
         notas.push(`PDP omitida: ${url}`);
         continue;
       }
-      // Si la web sirve contenido cruzado (mismo título en otra ruta),
-      // preferimos el canónico por path cuando el título no cuadra.
+      const tituloWeb = t.titulo;
       const canon = CANONICOS[t.pathSlug];
       if (canon) {
+        const propio =
+          titulosParecidos(tituloWeb, canon.titulo_es) ||
+          titulosParecidos(tituloWeb, canon.titulo_en) ||
+          titulosParecidos(tituloWeb, t.pathSlug.replace(/-/g, " "));
+        const deOtro = Object.entries(CANONICOS).some(
+          ([path, c]) =>
+            path !== t.pathSlug &&
+            (titulosParecidos(tituloWeb, c.titulo_es) ||
+              titulosParecidos(tituloWeb, c.titulo_en))
+        );
+        // madridapie a veces sirve la PDP de otro tour en una URL distinta.
+        if (!propio && deOtro) {
+          t.pdpCruzada = true;
+          t.descripcion = null;
+          t.puntoEncuentro = null;
+          t.imagen = null;
+          t.subtitulo = canon.subtitulo_es;
+          notas.push(
+            `PDP cruzada ${t.pathSlug} (web: "${tituloWeb}"): se conservan título canónico y contenido local.`
+          );
+        }
         t.titulo = canon.titulo_es;
         if (!t.subtitulo) t.subtitulo = canon.subtitulo_es;
       }
@@ -614,25 +643,27 @@ export async function importarFreeTour(
     try {
       const canon = CANONICOS[item.pathSlug];
       const slugPreferido = canon?.slug ?? `freetour-${item.pathSlug}`;
-      // Preferir siempre el canónico freetour-*; los clones del scrape genérico
-      // suelen tener ya la URL de itinerario y no deben "ganar" el match.
+      // Preferir canónico freetour-* (publicado o no) frente a clones del scrape genérico.
+      const candidatos = [
+        porSlug.get(slugPreferido),
+        porRef.get(item.url),
+        porSlug.get(item.pathSlug),
+        porTitulo.get(item.titulo.trim().toLowerCase()),
+      ].filter((x): x is Existente => !!x);
       const existe =
-        porSlug.get(slugPreferido) ??
-        porRef.get(item.url) ??
-        porSlug.get(item.pathSlug) ??
-        porTitulo.get(item.titulo.trim().toLowerCase()) ??
+        candidatos.find((c) => c.slug.startsWith("freetour-")) ??
+        candidatos.find((c) => c.estado === "publicado") ??
+        candidatos[0] ??
         null;
 
       const tituloEs = canon?.titulo_es ?? item.titulo;
       const tituloEn = canon?.titulo_en ?? item.titulo;
       const subEs = item.subtitulo ?? canon?.subtitulo_es ?? "";
-      const descI18n: Record<string, string> = item.descripcion
-        ? { es: item.descripcion }
-        : {};
+      const descI18n: Record<string, string> =
+        !item.pdpCruzada && item.descripcion ? { es: item.descripcion } : {};
       // Sustituir punto de encuentro con el texto de la web (no mezclar basura previa).
-      const puntoI18n: Record<string, string> = item.puntoEncuentro
-        ? { es: item.puntoEncuentro }
-        : {};
+      const puntoI18n: Record<string, string> =
+        !item.pdpCruzada && item.puntoEncuentro ? { es: item.puntoEncuentro } : {};
       const durI18n: Record<string, string> = item.duracion ? { es: item.duracion } : {};
       const subI18n: Record<string, string> = subEs ? { es: subEs } : {};
 
@@ -649,14 +680,16 @@ export async function importarFreeTour(
             ...(slugUpdate ? { slug: slugUpdate } : {}),
             titulo_i18n: mergeI18n(existe.titulo_i18n, { es: tituloEs, en: tituloEn }),
             subtitulo_i18n: mergeI18n(existe.subtitulo_i18n, subI18n),
-            descripcion_i18n: mergeI18n(existe.descripcion_i18n, descI18n),
+            ...(Object.keys(descI18n).length
+              ? { descripcion_i18n: mergeI18n(existe.descripcion_i18n, descI18n) }
+              : {}),
             ...(Object.keys(puntoI18n).length
               ? { punto_encuentro_i18n: puntoI18n }
               : {}),
             duracion_i18n: mergeI18n(existe.duracion_i18n, durI18n),
             precio_desde: 0,
             moneda: "EUR",
-            imagen_url: item.imagen,
+            ...(item.imagen && !item.pdpCruzada ? { imagen_url: item.imagen } : {}),
             url_redireccion: null,
             parent_id: rootId,
             tipo_pago: "integrado",
