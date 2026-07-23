@@ -259,41 +259,47 @@ export function CatalogTree({
   return (
     <div className="catalog-view">
       <div className="catalog-toolbar">
-        <input
-          className="input catalog-search"
-          type="search"
-          placeholder="Buscar producto o grupo…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <select
-          className="input catalog-filter"
-          value={providerFilter}
-          onChange={(e) => setProviderFilter(e.target.value)}
-        >
-          <option value="all">Todos los proveedores</option>
-          {providers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nombre}
-            </option>
-          ))}
-          <option value="none">Sin proveedor</option>
-        </select>
-        <div className="catalog-toolbar-actions">
-          <button type="button" className="mini-btn" onClick={expandAll}>
-            Expandir
-          </button>
-          <button type="button" className="mini-btn" onClick={collapseAll}>
-            Contraer
-          </button>
+        <div className="catalog-toolbar-filters">
+          <input
+            className="input catalog-search"
+            type="search"
+            placeholder="Buscar producto o grupo…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <label className="catalog-select-wrap">
+            <span className="catalog-select-label">Proveedor</span>
+            <select
+              className="catalog-select"
+              value={providerFilter}
+              onChange={(e) => setProviderFilter(e.target.value)}
+            >
+              <option value="all">Todos los proveedores</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
+                </option>
+              ))}
+              <option value="none">Sin proveedor</option>
+            </select>
+          </label>
+          <div className="catalog-seg" role="group" aria-label="Árbol">
+            <button type="button" className="catalog-seg-btn" onClick={expandAll}>
+              Expandir
+            </button>
+            <button type="button" className="catalog-seg-btn" onClick={collapseAll}>
+              Contraer
+            </button>
+          </div>
         </div>
-        <div style={{ flex: 1 }} />
-        <Link className="btn btn-ghost" href="/panel/products/import">
-          Importar desde web
-        </Link>
-        <Link className="btn btn-accent" href="/panel/products/nuevo">
-          + Nuevo nodo
-        </Link>
+        <div className="catalog-toolbar-cta">
+          <Link className="btn btn-ghost catalog-import-btn" href="/panel/products/import">
+            Importar desde web
+          </Link>
+          <Link className="btn btn-accent" href="/panel/products/nuevo">
+            + Nuevo nodo
+          </Link>
+        </div>
       </div>
 
       {visibleGroups.length === 0 ? (
@@ -325,7 +331,7 @@ export function CatalogTree({
                 </div>
                 {g.tieneFuente && (
                   <Link
-                    className="mini-btn"
+                    className="btn btn-ghost btn-sm"
                     href="/panel/products/import"
                     title="Importar desde web"
                   >
