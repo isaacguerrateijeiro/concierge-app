@@ -12,6 +12,7 @@ import {
 } from "./scraper";
 import { importarBigBus } from "./bigbus";
 import { importarFreeTour } from "./freetour";
+import { importarJuliaTravel } from "./julia";
 import { normalizeFuenteRef, type ResultadoImportacion } from "./types";
 
 export type { ResultadoImportacion } from "./types";
@@ -90,6 +91,13 @@ export async function importarProveedor(
     cfg.importador === "madridapie"
   ) {
     return importarFreeTour(tenantId, providerId, supabase);
+  }
+  if (
+    prov.slug === "julia" ||
+    cfg.importador === "julia" ||
+    cfg.importador === "juliatravel"
+  ) {
+    return importarJuliaTravel(tenantId, providerId, supabase);
   }
   const detalleCfg =
     cfg.detalle && typeof cfg.detalle === "object" && !Array.isArray(cfg.detalle)
