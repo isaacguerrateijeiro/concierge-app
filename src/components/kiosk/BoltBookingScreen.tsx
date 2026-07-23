@@ -4,6 +4,13 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Lang } from "./data";
 import { useUiText } from "./uiText";
 import { CatalogService, CatalogLocation, tx } from "@/lib/catalog.schema";
+import {
+  DEFAULT_PHONE_COUNTRY_ISO,
+  findPhoneCountry,
+  PHONE_COUNTRIES,
+  toE164,
+  type PhoneCountry,
+} from "@/lib/phoneCountries";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icon";
 
@@ -26,7 +33,9 @@ export default function BoltBookingScreen({
   const pickup = location?.direccion_recogida?.trim() || "";
   const hasPickup = pickup.length > 0;
 
-  const [phone, setPhone] = useState("");
+  const [countryIso, setCountryIso] = useState(DEFAULT_PHONE_COUNTRY_ISO);
+  const [nationalPhone, setNationalPhone] = useState("");
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   const [dropoff, setDropoff] = useState("");
   const [timing, setTiming] = useState<TimingMode>("now");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -34,7 +43,10 @@ export default function BoltBookingScreen({
   const [driverNote, setDriverNote] = useState("");
   const [triedContinue, setTriedContinue] = useState(false);
 
+  const country = findPhoneCountry(countryIso);
+  const e164 = toE164(country.dial, nationalPhone);
   const titulo = tx(service.titulo_i18n, lang);
+
   const minSchedule = useMemo(() => {
     const d = new Date(Date.now() + 30 * 60 * 1000);
     d.setSeconds(0, 0);
@@ -42,7 +54,7 @@ export default function BoltBookingScreen({
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }, []);
 
-  const phoneOk = phone.replace(/\D/g, "").length >= 8;
+  const phoneOk = e164.replace(/\D/g, "").length >= 10;
   const dropoffOk = dropoff.trim().length >= 3;
   const scheduleOk = timing === "now" || scheduledAt.length > 0;
   const formOk = hasPickup && phoneOk && dropoffOk && scheduleOk;
@@ -50,6 +62,8 @@ export default function BoltBookingScreen({
   function handleContinue() {
     setTriedContinue(true);
     // Sin API Ride Booker aún: no enviamos reserva real.
+    // e164 queda listo para cuando haya API.
+    void e164;
   }
 
   return (
@@ -140,14 +154,44 @@ export default function BoltBookingScreen({
         )}
 
         <Field label={t(lang, "boltPhone")}>
-          <input
-            type="tel"
-            inputMode="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder={t(lang, "phonePlaceholder")}
-            style={inputStyle}
-          />
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 10 }}>
+            <button
+              type="button"
+              className="tap"
+              onClick={() => setCountryPickerOpen(true)}
+              aria-label={t(lang, "boltSelectCountry")}
+              style={{
+                ...inputStyle,
+                width: "auto",
+                minWidth: 148,
+                padding: "0 16px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 10,
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ fontSize: 26, lineHeight: 1 }} aria-hidden>
+                {country.flag}
+              </span>
+              <span style={{ fontWeight: 700 }}>+{country.dial}</span>
+              <span style={{ color: "var(--muted)", fontSize: 16 }}>▾</span>
+            </button>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={nationalPhone}
+              onChange={(e) => setNationalPhone(e.target.value.replace(/[^\d\s-]/g, ""))}
+              placeholder={t(lang, "boltPhoneNationalPlaceholder")}
+              style={inputStyle}
+              autoComplete="tel-national"
+            />
+          </div>
+          {e164 && (
+            <div style={{ marginTop: 8, fontFamily: "var(--mono)", fontSize: 14, color: "var(--muted)" }}>
+              {e164}
+            </div>
+          )}
           {triedContinue && !phoneOk && <Hint>{t(lang, "boltPhoneRequired")}</Hint>}
         </Field>
 
@@ -278,6 +322,155 @@ export default function BoltBookingScreen({
             {t(lang, "boltApiPending")}
           </p>
         )}
+      </div>
+
+      {countryPickerOpen && (
+        <CountryPicker
+          lang={lang}
+          selectedIso={countryIso}
+          searchPlaceholder={t(lang, "boltCountrySearch")}
+          title={t(lang, "boltSelectCountry")}
+          closeLabel={t(lang, "back")}
+          onClose={() => setCountryPickerOpen(false)}
+          onSelect={(c) => {
+            setCountryIso(c.iso);
+            setCountryPickerOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CountryPicker({
+  lang,
+  selectedIso,
+  searchPlaceholder,
+  title,
+  closeLabel,
+  onClose,
+  onSelect,
+}: {
+  lang: Lang;
+  selectedIso: string;
+  searchPlaceholder: string;
+  title: string;
+  closeLabel: string;
+  onClose: () => void;
+  onSelect: (c: PhoneCountry) => void;
+}) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return PHONE_COUNTRIES;
+    return PHONE_COUNTRIES.filter((c) => {
+      const name = lang === "es" ? c.nameEs : c.nameEn;
+      return (
+        name.toLowerCase().includes(needle) ||
+        c.iso.toLowerCase().includes(needle) ||
+        c.dial.includes(needle.replace(/^\+/, "")) ||
+        `+${c.dial}`.includes(needle)
+      );
+    });
+  }, [q, lang]);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 80,
+        background: "rgba(22,20,15,0.45)",
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "center",
+      }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          height: "78%",
+          background: "var(--bone)",
+          borderRadius: "28px 28px 0 0",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          boxShadow: "0 -12px 40px rgba(0,0,0,0.2)",
+        }}
+      >
+        <div style={{ padding: "22px 28px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2 style={{ margin: 0, fontFamily: "var(--serif)", fontSize: 32, color: "var(--ink)" }}>{title}</h2>
+          <button
+            type="button"
+            className="tap"
+            onClick={onClose}
+            style={{
+              border: "1px solid var(--line)",
+              background: "#fff",
+              borderRadius: 999,
+              padding: "12px 20px",
+              fontFamily: "var(--mono)",
+              fontSize: 13,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+            }}
+          >
+            {closeLabel}
+          </button>
+        </div>
+        <div style={{ padding: "0 28px 16px" }}>
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={searchPlaceholder}
+            autoFocus
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 28px" }}>
+          {filtered.map((c) => {
+            const selected = c.iso === selectedIso;
+            const name = lang === "es" ? c.nameEs : c.nameEn;
+            return (
+              <button
+                key={c.iso}
+                type="button"
+                className="tap"
+                onClick={() => onSelect(c)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  textAlign: "left",
+                  padding: "18px 16px",
+                  border: "none",
+                  borderBottom: "1px solid var(--line)",
+                  background: selected ? "rgba(22,20,15,0.06)" : "transparent",
+                  cursor: "pointer",
+                  borderRadius: 12,
+                }}
+              >
+                <span style={{ fontSize: 30, lineHeight: 1 }} aria-hidden>
+                  {c.flag}
+                </span>
+                <span style={{ flex: 1, fontFamily: "var(--sans)", fontSize: 22, color: "var(--ink)" }}>
+                  {name}
+                </span>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 18, fontWeight: 700, color: "var(--ink)" }}>
+                  +{c.dial}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
