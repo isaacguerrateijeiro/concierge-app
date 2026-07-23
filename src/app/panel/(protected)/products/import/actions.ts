@@ -87,6 +87,7 @@ export async function guardarFuente(
     "tipo_pago",
     "crear_nuevos",
     "match_por_titulo",
+    "importador",
   ] as const) {
     if (prevCfg[k] !== undefined) config[k] = prevCfg[k];
   }

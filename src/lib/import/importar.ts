@@ -10,36 +10,21 @@ import {
   type ScrapedItem,
   type TierConfig,
 } from "./scraper";
+import { importarBigBus } from "./bigbus";
+import { normalizeFuenteRef, type ResultadoImportacion } from "./types";
 
-/** Normaliza URL/ref de origen para comparar listados vs PDP. */
-export function normalizeFuenteRef(ref: string): string {
-  try {
-    const u = new URL(ref);
-    const path = u.pathname.replace(/\/+$/, "") || "";
-    return `${u.protocol}//${u.host.toLowerCase()}${path}${u.search}${u.hash}`.toLowerCase();
-  } catch {
-    return ref.trim().toLowerCase();
-  }
-}
+export type { ResultadoImportacion } from "./types";
+export { normalizeFuenteRef } from "./types";
 
 type DbClient = SupabaseClient<Database>;
-
-export interface ResultadoImportacion {
-  estado: "ok" | "parcial" | "error";
-  detectados: number;
-  creados: number;
-  actualizados: number;
-  despublicados: number;
-  errores: number;
-  metodo: string;
-  notas: string[];
-}
 
 interface ProviderFuente {
   id: string;
   tenant_id: string;
+  slug: string;
   fuente_url: string | null;
   fuente_config: Record<string, unknown>;
+  integracion_config: Record<string, unknown> | null;
 }
 
 // Resuelve la categoría destino: la indicada en fuente_config.categoria_id (si
@@ -77,7 +62,7 @@ export async function importarProveedor(
 
   const { data: provRaw } = await supabase
     .from("providers")
-    .select("id, tenant_id, fuente_url, fuente_config")
+    .select("id, tenant_id, slug, fuente_url, fuente_config, integracion_config")
     .eq("id", providerId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -86,6 +71,18 @@ export async function importarProveedor(
   if (!prov.fuente_url) throw new Error("Este proveedor no tiene URL de fuente configurada.");
 
   const cfg = (prov.fuente_config ?? {}) as Record<string, unknown>;
+  const integracion =
+    prov.integracion_config && typeof prov.integracion_config === "object"
+      ? prov.integracion_config
+      : {};
+  // Big Bus tiene importador propio (jerarquía fija); no usa el genérico.
+  if (
+    prov.slug === "bigbus" ||
+    integracion.tipo === "bigbus" ||
+    cfg.importador === "bigbus"
+  ) {
+    return importarBigBus(tenantId, providerId, supabase);
+  }
   const detalleCfg =
     cfg.detalle && typeof cfg.detalle === "object" && !Array.isArray(cfg.detalle)
       ? (cfg.detalle as { descripcion?: string })
