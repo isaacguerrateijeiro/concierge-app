@@ -69,8 +69,23 @@ function Row({
         {k.ultimoPedido ? fmtFechaHora(k.ultimoPedido) : "—"}
       </td>
       <td>
-        <button type="button" className="mini-btn" onClick={copiarUrl} title={urlKiosko}>
-          {copiado ? "URL copiada" : "Copiar URL"}
+        <button
+          type="button"
+          className={`kiosk-copy-btn ${copiado ? "copied" : ""}`}
+          onClick={copiarUrl}
+          title={urlKiosko}
+        >
+          {copiado ? (
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden>
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <rect x="9" y="9" width="13" height="13" rx="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+          )}
+          <span>{copiado ? "Copiada" : "Copiar URL"}</span>
         </button>
       </td>
       {puedeEditar && (

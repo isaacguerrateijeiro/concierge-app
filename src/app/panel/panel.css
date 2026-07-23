@@ -1063,6 +1063,37 @@
   background: var(--warn);
   box-shadow: 0 0 0 3px var(--warn-soft);
 }
+.pnl .kiosk-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(22, 20, 15, 0.04);
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.pnl .kiosk-copy-btn:hover {
+  border-color: var(--ink-3);
+  background: var(--paper);
+  color: var(--ink);
+}
+.pnl .kiosk-copy-btn.copied {
+  border-color: transparent;
+  background: var(--success-soft);
+  color: var(--success);
+}
+.pnl .kiosk-copy-btn svg {
+  flex: 0 0 auto;
+}
 
 .pnl .empty-note {
   text-align: center;
