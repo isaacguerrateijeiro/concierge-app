@@ -187,11 +187,95 @@ function imagenGrande(url: string | null): string | null {
   return url.replace(/-\d+x\d+(\.[a-z]+)$/i, "$1");
 }
 
-function extraerPuntoEncuentro(desc: string): string | null {
-  const m =
-    desc.match(/Punto de encuentro\s*\n?\s*(.+?)(?:\n|Duración|Recorrido|$)/i) ||
-    desc.match(/Empieza:\s*(.+?)(?:\n|Finaliza|$)/i);
-  return m?.[1]?.replace(/\s+/g, " ").trim().slice(0, 280) || null;
+function esPuntoValido(raw: string): boolean {
+  const t = raw.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  if (t.length < 12) return false;
+  // Evitar capturar la frase de puntualidad ("…al punto de encuentro ya que…").
+  if (/^ya que\b/i.test(t)) return false;
+  if (/llega\s+\d+\s+minutos/i.test(t)) return false;
+  if (/empezar[áa]\s+puntualmente/i.test(t)) return false;
+  return true;
+}
+
+/** Punto de encuentro tal cual en la web (tabla PDP → Empieza: → JSON-LD). */
+function extraerPuntoEncuentro(
+  $: cheerio.CheerioAPI,
+  descRaw: string
+): string | null {
+  for (const el of $("td").toArray()) {
+    const label = $(el).text().replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!label.includes("punto de encuentro") && label !== "meeting point") continue;
+    const val = $(el).next("td").text().replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    if (esPuntoValido(val)) return val.slice(0, 400);
+  }
+
+  const empieza =
+    descRaw.match(/^\s*Empieza:\s*(.+)$/im)?.[1]?.trim() ||
+    descRaw.match(/^\s*Start:\s*(.+)$/im)?.[1]?.trim();
+  if (empieza && esPuntoValido(empieza)) return empieza.slice(0, 400);
+
+  // Línea siguiente a un "Punto de encuentro" / "Meeting point" aislado en el JSON-LD.
+  const lines = descRaw.split(/\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const label = lines[i].replace(/\u00a0/g, " ").trim();
+    if (!/^(punto de encuentro|meeting point)$/i.test(label)) continue;
+    const next = (lines[i + 1] ?? "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    if (esPuntoValido(next)) return next.slice(0, 400);
+  }
+  return null;
+}
+
+const TIERS_FREETOUR = [
+  {
+    tipo: "adulto",
+    label_i18n: { es: "Adulto", en: "Adult" },
+    precio: 0,
+    orden: 0,
+  },
+  {
+    tipo: "nino",
+    label_i18n: { es: "Niño", en: "Child" },
+    precio: 0,
+    orden: 1,
+  },
+] as const;
+
+/** Garantiza calendario + selectores de pasajeros (adulto/niño) en el kiosko. */
+async function asegurarTiersFreeTour(
+  db: DbClient,
+  serviceId: string
+): Promise<void> {
+  const { data: existentes } = await db
+    .from("service_price_tiers")
+    .select("id, tipo")
+    .eq("service_id", serviceId);
+
+  const tipos = new Set((existentes ?? []).map((t) => t.tipo));
+  const tieneAdultoNino = tipos.has("adulto") && tipos.has("nino");
+  if (tieneAdultoNino) {
+    // Asegurar precio 0 en free tours.
+    await db
+      .from("service_price_tiers")
+      .update({ precio: 0 })
+      .eq("service_id", serviceId)
+      .in("tipo", ["adulto", "nino"]);
+    return;
+  }
+
+  // Sustituir tiers legacy (p.ej. "persona") por adulto + niño.
+  if ((existentes ?? []).length > 0) {
+    await db.from("service_price_tiers").delete().eq("service_id", serviceId);
+  }
+  const { error } = await db.from("service_price_tiers").insert(
+    TIERS_FREETOUR.map((t) => ({
+      service_id: serviceId,
+      tipo: t.tipo,
+      label_i18n: t.label_i18n,
+      precio: t.precio,
+      orden: t.orden,
+    }))
+  );
+  if (error) throw new Error(`tiers: ${error.message}`);
 }
 
 function parseProductJsonLd(html: string): {
@@ -302,7 +386,7 @@ async function leerPdp(url: string): Promise<TourScraped | null> {
       .trim() || ogDesc;
 
   const subtitulo = metaASubtitulo(metaLine) ?? CANONICOS[pathSlug]?.subtitulo_es ?? null;
-  const puntoEncuentro = descRaw ? extraerPuntoEncuentro(descRaw) : null;
+  const puntoEncuentro = extraerPuntoEncuentro($, descRaw);
   const duracion =
     subtitulo?.split("·")[0]?.trim() ||
     $("td")
@@ -545,12 +629,14 @@ export async function importarFreeTour(
       const descI18n: Record<string, string> = item.descripcion
         ? { es: item.descripcion }
         : {};
+      // Sustituir punto de encuentro con el texto de la web (no mezclar basura previa).
       const puntoI18n: Record<string, string> = item.puntoEncuentro
         ? { es: item.puntoEncuentro }
         : {};
       const durI18n: Record<string, string> = item.duracion ? { es: item.duracion } : {};
       const subI18n: Record<string, string> = subEs ? { es: subEs } : {};
 
+      let serviceId: string;
       if (existe) {
         // Conservar slug canónico freetour-*; no renombrar si chocaría.
         const slugUpdate =
@@ -564,7 +650,9 @@ export async function importarFreeTour(
             titulo_i18n: mergeI18n(existe.titulo_i18n, { es: tituloEs, en: tituloEn }),
             subtitulo_i18n: mergeI18n(existe.subtitulo_i18n, subI18n),
             descripcion_i18n: mergeI18n(existe.descripcion_i18n, descI18n),
-            punto_encuentro_i18n: mergeI18n(existe.punto_encuentro_i18n, puntoI18n),
+            ...(Object.keys(puntoI18n).length
+              ? { punto_encuentro_i18n: puntoI18n }
+              : {}),
             duracion_i18n: mergeI18n(existe.duracion_i18n, durI18n),
             precio_desde: 0,
             moneda: "EUR",
@@ -582,6 +670,7 @@ export async function importarFreeTour(
           .eq("id", existe.id)
           .eq("tenant_id", tenantId);
         if (error) throw new Error(error.message);
+        serviceId = existe.id;
         idsVistos.add(existe.id);
         actualizados += 1;
         if (slugUpdate) slugsUsados.add(slugUpdate);
@@ -620,9 +709,12 @@ export async function importarFreeTour(
           .select("id")
           .single();
         if (error || !data) throw new Error(error?.message ?? "no creado");
+        serviceId = data.id;
         idsVistos.add(data.id);
         creados += 1;
       }
+
+      await asegurarTiersFreeTour(db, serviceId);
     } catch (e) {
       errores += 1;
       notas.push(`"${item.titulo}": ${e instanceof Error ? e.message : "error"}`);
