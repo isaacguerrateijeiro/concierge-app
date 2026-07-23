@@ -57,6 +57,11 @@ function Row({
         <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3, fontFamily: "var(--mono, monospace)" }}>
           {k.id}
         </div>
+        {k.direccionRecogida && (
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, maxWidth: 260, lineHeight: 1.35 }}>
+            {k.direccionRecogida}
+          </div>
+        )}
       </td>
       <td>{k.tipoI18n.es ?? Object.values(k.tipoI18n)[0] ?? "—"}</td>
       <td>
@@ -176,7 +181,19 @@ export function KioskManager({
               </div>
             ))}
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+          <div className="field">
+            <label>Dirección de recogida (Bolt / taxis)</label>
+            <input
+              className="input"
+              name="direccion_recogida"
+              defaultValue={editando?.direccionRecogida ?? ""}
+              placeholder="Gran Vía 28, 28013 Madrid"
+            />
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>
+              Se usa como punto de recogida fijo en el kiosko. El huésped no puede cambiarla.
+            </p>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, marginBottom: 16, marginTop: 12 }}>
             <input type="checkbox" name="activo" defaultChecked={editando?.activo ?? true} /> Activo
           </label>
           <div style={{ display: "flex", gap: 10 }}>

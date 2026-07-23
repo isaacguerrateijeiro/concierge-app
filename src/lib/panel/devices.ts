@@ -8,6 +8,8 @@ export interface Kiosko {
   tipoI18n: Localized;
   orden: number;
   activo: boolean;
+  /** Dirección fija de recogida (hotel/lugar). Usada por Bolt, etc. */
+  direccionRecogida: string | null;
   pedidos: number;
   ultimoPedido: string | null;
 }
@@ -16,7 +18,7 @@ export async function listarKioskos(tenantId: string): Promise<Kiosko[]> {
   const supabase = await createSupabaseServerClient();
   const { data: locs, error } = await supabase
     .from("locations")
-    .select("id, nombre, tipo_i18n, orden, activo")
+    .select("id, nombre, tipo_i18n, orden, activo, direccion_recogida")
     .eq("tenant_id", tenantId)
     .order("orden", { ascending: true });
   if (error) throw new Error(`listarKioskos: ${error.message}`);
@@ -44,6 +46,7 @@ export async function listarKioskos(tenantId: string): Promise<Kiosko[]> {
       tipoI18n: (l.tipo_i18n as Localized) ?? {},
       orden: l.orden,
       activo: l.activo,
+      direccionRecogida: l.direccion_recogida ?? null,
       pedidos: a?.pedidos ?? 0,
       ultimoPedido: a?.ultimo ?? null,
     };
@@ -54,7 +57,7 @@ export async function getKiosko(tenantId: string, id: string): Promise<Kiosko | 
   const supabase = await createSupabaseServerClient();
   const { data: l } = await supabase
     .from("locations")
-    .select("id, nombre, tipo_i18n, orden, activo")
+    .select("id, nombre, tipo_i18n, orden, activo, direccion_recogida")
     .eq("tenant_id", tenantId)
     .eq("id", id)
     .maybeSingle();
@@ -65,6 +68,7 @@ export async function getKiosko(tenantId: string, id: string): Promise<Kiosko | 
     tipoI18n: (l.tipo_i18n as Localized) ?? {},
     orden: l.orden,
     activo: l.activo,
+    direccionRecogida: l.direccion_recogida ?? null,
     pedidos: 0,
     ultimoPedido: null,
   };

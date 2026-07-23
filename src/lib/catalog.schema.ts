@@ -66,6 +66,8 @@ export const catalogLocationSchema = z.object({
   nombre: z.string(),
   tipo_i18n: localizedSchema,
   orden: z.number(),
+  // Dirección fija de recogida (hotel/lugar del tótem). Null si aún no se configuró.
+  direccion_recogida: z.string().nullable().default(null),
 });
 
 export const catalogCategorySchema = z.object({

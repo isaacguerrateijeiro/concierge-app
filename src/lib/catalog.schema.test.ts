@@ -16,6 +16,7 @@ const validCatalog = {
       nombre: "Recepción",
       tipo_i18n: { es: "Vestíbulo" },
       orden: 1,
+      direccion_recogida: "Gran Vía 28, Madrid",
     },
   ],
   categories: [

@@ -6,6 +6,7 @@ import StatusBar from "./StatusBar";
 import HomeScreen from "./HomeScreen";
 import BrowseScreen from "./BrowseScreen";
 import DetailScreen from "./DetailScreen";
+import BoltBookingScreen from "./BoltBookingScreen";
 import CartBar from "./CartBar";
 import CartScreen from "./CartScreen";
 import CheckoutScreen from "./CheckoutScreen";
@@ -291,16 +292,32 @@ export default function Kiosk({ catalog }: { catalog: Catalog }) {
                 tenantInitial={tenantInitial}
               />
               {detailSlug ? (
-                <DetailScreen
-                  key={detailSlug}
-                  catalog={catalog}
-                  lang={lang}
-                  nodeSlug={detailSlug}
-                  cartItem={cart.find((i) => i.service_slug === detailSlug)}
-                  onBack={() => setDetailSlug(null)}
-                  onAddToCart={handleAddToCart}
-                  onRemoveFromCart={removeItem}
-                />
+                (() => {
+                  const detailService = porSlug.get(detailSlug);
+                  if (detailService?.proveedor.slug === "bolt") {
+                    return (
+                      <BoltBookingScreen
+                        key={detailSlug}
+                        lang={lang}
+                        service={detailService}
+                        location={kioskoConfigurado}
+                        onBack={() => setDetailSlug(null)}
+                      />
+                    );
+                  }
+                  return (
+                    <DetailScreen
+                      key={detailSlug}
+                      catalog={catalog}
+                      lang={lang}
+                      nodeSlug={detailSlug}
+                      cartItem={cart.find((i) => i.service_slug === detailSlug)}
+                      onBack={() => setDetailSlug(null)}
+                      onAddToCart={handleAddToCart}
+                      onRemoveFromCart={removeItem}
+                    />
+                  );
+                })()
               ) : browseSlug ? (
                 <BrowseScreen
                   catalog={catalog}
