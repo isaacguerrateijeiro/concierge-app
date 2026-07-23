@@ -234,8 +234,10 @@ export async function importarProveedor(
     cfg.tipo_pago === "integrado" || cfg.solo_gratuitos === true
       ? ("integrado" as const)
       : ("derivado" as const);
-  // Si es false, solo enriquece servicios ya existentes (no crea hojas nuevas).
+  // Si es false, solo toca servicios ya existentes por fuente_ref exacta
+  // (no crea hojas, no republica despublicados, no empareja por título).
   const crearNuevos = cfg.crear_nuevos !== false;
+  const matchPorTitulo = cfg.match_por_titulo === true || (cfg.match_por_titulo !== false && crearNuevos);
   let parentFijoId: string | null = null;
   if (parentSlugCfg) {
     const { data: padre } = await supabase
@@ -352,12 +354,18 @@ export async function importarProveedor(
       // Preferir el grupo del listado; si no, el padre fijo (Free Tour, etc.).
       const parentId =
         (item.grupo ? grupos.get(item.grupo.trim()) ?? null : null) ?? parentFijoId;
-      const existe =
-        existentes.get(refNorm) ??
-        hojasPorTitulo.get(item.titulo.trim().toLowerCase()) ??
-        null;
+      const existePorRef = existentes.get(refNorm) ?? null;
+      const existePorTitulo = matchPorTitulo
+        ? hojasPorTitulo.get(item.titulo.trim().toLowerCase()) ?? null
+        : null;
+      const existe = existePorRef ?? existePorTitulo;
       if (!existe && !crearNuevos) {
         notas.push(`Sin match local (no se crea): ${item.titulo}`);
+        continue;
+      }
+      // Catálogo local (Free Tour): no republicar clones despublicados del scrape.
+      if (existe && !crearNuevos && existe.estado === "despublicado") {
+        notas.push(`Omitido (local despublicado): ${existe.slug}`);
         continue;
       }
       if (existe?.fuente_ref) vistos.add(normalizeFuenteRef(existe.fuente_ref));
@@ -402,8 +410,10 @@ export async function importarProveedor(
             imagen_url: fila.imagen_url,
             parent_id: parentId,
             importado_at: fila.importado_at,
-            estado: "publicado",
-            activo: true,
+            // Solo republicar si ya estaba publicado o se permiten altas.
+            ...(existe.estado === "publicado" || crearNuevos
+              ? { estado: "publicado" as const, activo: true }
+              : {}),
             tipo_pago: integrado ? "integrado" : "derivado",
             url_redireccion: integrado ? null : fila.url_redireccion,
             ...(integrado
