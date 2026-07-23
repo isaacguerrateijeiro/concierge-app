@@ -192,11 +192,53 @@ export async function importarProveedor(
   let errores = 0;
   const vistos = new Set<string>();
 
+  // Padre fijo opcional (p.ej. Free Tour Madrid): todos los items cuelgan de él.
+  const parentSlugCfg =
+    typeof cfg.parent_slug === "string" && cfg.parent_slug.trim()
+      ? cfg.parent_slug.trim()
+      : null;
+  const grupoDefault =
+    typeof cfg.grupo_default === "string" && cfg.grupo_default.trim()
+      ? cfg.grupo_default.trim()
+      : null;
+  let parentFijoId: string | null = null;
+  if (parentSlugCfg) {
+    const { data: padre } = await supabase
+      .from("services")
+      .select("id, slug")
+      .eq("tenant_id", tenantId)
+      .eq("provider_id", providerId)
+      .eq("slug", parentSlugCfg)
+      .maybeSingle();
+    if (padre) {
+      parentFijoId = padre.id;
+      slugsUsados.add(padre.slug);
+      // Asegurar que el grupo padre queda publicado.
+      await supabase
+        .from("services")
+        .update({ estado: "publicado", activo: true, importado_at: ahora })
+        .eq("id", padre.id)
+        .eq("tenant_id", tenantId);
+    } else {
+      notas.push(`parent_slug "${parentSlugCfg}" no encontrado; se usará grupo_default si hay.`);
+    }
+  }
+
+  // Aplicar grupo por defecto a items sin etiqueta de agrupación.
+  if (grupoDefault) {
+    for (const it of scrape.items) {
+      if (!(it.grupo ?? "").trim()) it.grupo = grupoDefault;
+    }
+  }
+
   // 1) Asegurar los nodos 'grupo' para cada etiqueta de agrupación detectada.
   const grupos = new Map<string, string>(); // label -> service id (parent)
+  if (parentFijoId && grupoDefault) {
+    grupos.set(grupoDefault, parentFijoId);
+  }
   const etiquetas = Array.from(
     new Set(scrape.items.map((i) => (i.grupo ?? "").trim()).filter(Boolean))
-  );
+  ).filter((label) => !(parentFijoId && grupoDefault && label === grupoDefault));
   for (const label of etiquetas) {
     const ref = `grupo:${slugify(label)}`;
     vistos.add(normalizeFuenteRef(ref));
@@ -259,7 +301,9 @@ export async function importarProveedor(
         continue;
       }
       vistos.add(refNorm);
-      const parentId = item.grupo ? grupos.get(item.grupo.trim()) ?? null : null;
+      const parentId =
+        parentFijoId ??
+        (item.grupo ? grupos.get(item.grupo.trim()) ?? null : null);
       const existe = existentes.get(refNorm);
       const fila = mapItem(item, { tenantId, providerId, categoryId, parentId, ahora });
 
