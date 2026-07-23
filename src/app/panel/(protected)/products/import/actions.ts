@@ -64,7 +64,23 @@ export async function guardarFuente(
   }
   const d = parsed.data;
 
-  const config: Record<string, string | boolean> = {};
+  const supabase = await createSupabaseServerClient();
+  // Conservamos claves avanzadas ya configuradas (detalle PDP, grupos, tiers…).
+  const { data: prev } = await supabase
+    .from("providers")
+    .select("fuente_config")
+    .eq("id", d.provider_id)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  const prevCfg =
+    prev?.fuente_config && typeof prev.fuente_config === "object" && !Array.isArray(prev.fuente_config)
+      ? (prev.fuente_config as Record<string, unknown>)
+      : {};
+
+  const config: Record<string, unknown> = {};
+  for (const k of ["detalle", "grupos", "tiers_config"] as const) {
+    if (prevCfg[k] !== undefined) config[k] = prevCfg[k];
+  }
   if (d.categoria_id) config.categoria_id = d.categoria_id;
   for (const k of [
     "item", "titulo", "precio", "imagen", "enlace", "grupo",
@@ -77,7 +93,6 @@ export async function guardarFuente(
     config.solo_gratuitos = true;
   }
 
-  const supabase = await createSupabaseServerClient();
   const { error } = await supabase
     .from("providers")
     .update({

@@ -1092,6 +1092,7 @@ export type Database = {
           precio_desde: number | null
           provider_id: string
           punto_encuentro_i18n: Json
+          instrucciones_i18n: Json
           slug: string
           subtitulo_i18n: Json
           tenant_id: string
@@ -1120,6 +1121,7 @@ export type Database = {
           precio_desde?: number | null
           provider_id: string
           punto_encuentro_i18n?: Json
+          instrucciones_i18n?: Json
           slug: string
           subtitulo_i18n?: Json
           tenant_id: string
@@ -1148,6 +1150,7 @@ export type Database = {
           precio_desde?: number | null
           provider_id?: string
           punto_encuentro_i18n?: Json
+          instrucciones_i18n?: Json
           slug?: string
           subtitulo_i18n?: Json
           tenant_id?: string

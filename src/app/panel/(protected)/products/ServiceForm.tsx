@@ -85,6 +85,7 @@ export function ServiceForm({
   const sub = (servicio?.subtitulo_i18n ?? {}) as I18n;
   const desc = (servicio?.descripcion_i18n ?? {}) as I18n;
   const pe = (servicio?.punto_encuentro_i18n ?? {}) as I18n;
+  const inst = (servicio?.instrucciones_i18n ?? {}) as I18n;
   const esServicio = tipoNodo === "servicio";
   const esIntegrado = esServicio && tipoPago === "integrado";
 
@@ -199,6 +200,21 @@ export function ServiceForm({
               name={`punto_encuentro_${l}`}
               defaultValue={pe[l] ?? ""}
               placeholder="p. ej. Plaza Mayor, Centro"
+            />
+          </div>
+        ))}
+
+        {locales.map((l) => (
+          <div className="field" key={`inst_${l}`}>
+            <label>
+              Cómo usar el billete <span className="hint">{LOCALE_LABEL[l] ?? l}</span>
+            </label>
+            <textarea
+              className="input"
+              name={`instrucciones_${l}`}
+              defaultValue={inst[l] ?? ""}
+              rows={3}
+              placeholder="p. ej. Abre la app, añade la reserva, activa el billete y muéstralo al conductor."
             />
           </div>
         ))}

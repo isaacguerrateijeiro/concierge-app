@@ -311,6 +311,7 @@ export default function DetailScreen({
   const subtitulo = tx(service.subtitulo_i18n, lang);
   const descripcion = tx(service.descripcion_i18n, lang);
   const puntoEncuentro = tx(service.punto_encuentro_i18n, lang);
+  const instrucciones = tx(service.instrucciones_i18n, lang);
   const duracion = tx(service.duracion_i18n, lang);
   const breadcrumb = tituloPadre(catalog, service, lang);
   const esDerivado = service.tipo_pago === "derivado";
@@ -450,21 +451,45 @@ export default function DetailScreen({
         )}
       </div>
 
-      {/* Descripción larga + punto de encuentro */}
-      {(descripcion || puntoEncuentro) && (
+      {/* Descripción larga + cómo usar el billete + punto de encuentro */}
+      {(descripcion || instrucciones || puntoEncuentro) && (
         <div style={{ padding: "4px 60px 8px", maxWidth: 940 }}>
           {descripcion && (
             <>
               <div style={{ fontFamily: "var(--mono)", fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>
                 {t(lang, "about")}
               </div>
-              <p style={{ fontFamily: "var(--sans)", fontSize: 19, lineHeight: 1.6, color: "var(--ink-3)", margin: 0 }}>
+              <div style={{ fontFamily: "var(--sans)", fontSize: 19, lineHeight: 1.6, color: "var(--ink-3)", margin: 0, whiteSpace: "pre-line" }}>
                 {descripcion}
-              </p>
+              </div>
             </>
           )}
+          {instrucciones && (
+            <div
+              style={{
+                marginTop: descripcion ? 22 : 0,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 14,
+                background: "#fff",
+                border: "2px solid var(--ink)",
+                borderRadius: 18,
+                padding: "18px 22px",
+              }}
+            >
+              <Icon name="card" size={26} sw={2} stroke="var(--ink)" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--muted)" }}>
+                  {t(lang, "howToUse")}
+                </div>
+                <div style={{ fontFamily: "var(--sans)", fontWeight: 600, fontSize: 18, lineHeight: 1.5, color: "var(--ink)", marginTop: 6, whiteSpace: "pre-line" }}>
+                  {instrucciones}
+                </div>
+              </div>
+            </div>
+          )}
           {puntoEncuentro && (
-            <div style={{ marginTop: descripcion ? 22 : 0, display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 20px" }}>
+            <div style={{ marginTop: descripcion || instrucciones ? 22 : 0, display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 20px" }}>
               <Icon name="pin" size={22} sw={2} stroke="var(--accent, #e67e22)" />
               <div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--muted)" }}>

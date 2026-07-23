@@ -67,6 +67,10 @@ export async function importarProveedor(
   if (!prov.fuente_url) throw new Error("Este proveedor no tiene URL de fuente configurada.");
 
   const cfg = (prov.fuente_config ?? {}) as Record<string, unknown>;
+  const detalleCfg =
+    cfg.detalle && typeof cfg.detalle === "object" && !Array.isArray(cfg.detalle)
+      ? (cfg.detalle as { descripcion?: string })
+      : undefined;
   const selectores: FuenteConfig = {
     item: cfg.item as string | undefined,
     titulo: cfg.titulo as string | undefined,
@@ -81,6 +85,11 @@ export async function importarProveedor(
     tiers_config: Array.isArray(cfg.tiers_config)
       ? (cfg.tiers_config as TierConfig[])
       : undefined,
+    // Imprescindible para el batch/cron: sin esto no se recupera la PDP
+    // (descripción larga + instrucciones de activación del billete).
+    detalle: detalleCfg?.descripcion
+      ? { descripcion: detalleCfg.descripcion }
+      : undefined,
   };
 
   const categoryId = await categoriaDestino(supabase, tenantId, cfg.categoria_id as string | undefined);
@@ -94,13 +103,33 @@ export async function importarProveedor(
   // Servicios ya importados de este proveedor (idempotencia por fuente_ref).
   const { data: existentesRaw } = await supabase
     .from("services")
-    .select("id, slug, fuente_ref, tipo_nodo")
+    .select(
+      "id, slug, fuente_ref, tipo_nodo, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
+    )
     .eq("tenant_id", tenantId)
     .eq("provider_id", providerId)
     .not("fuente_ref", "is", null);
-  const existentes = new Map<string, { id: string; slug: string }>();
+  type Existente = {
+    id: string;
+    slug: string;
+    descripcion_i18n: Record<string, string>;
+    instrucciones_i18n: Record<string, string>;
+    punto_encuentro_i18n: Record<string, string>;
+    subtitulo_i18n: Record<string, string>;
+    duracion_i18n: Record<string, string>;
+  };
+  const existentes = new Map<string, Existente>();
   for (const e of existentesRaw ?? []) {
-    if (e.fuente_ref) existentes.set(e.fuente_ref, { id: e.id, slug: e.slug });
+    if (!e.fuente_ref) continue;
+    existentes.set(e.fuente_ref, {
+      id: e.id,
+      slug: e.slug,
+      descripcion_i18n: asI18n(e.descripcion_i18n),
+      instrucciones_i18n: asI18n(e.instrucciones_i18n),
+      punto_encuentro_i18n: asI18n(e.punto_encuentro_i18n),
+      subtitulo_i18n: asI18n(e.subtitulo_i18n),
+      duracion_i18n: asI18n(e.duracion_i18n),
+    });
   }
   const slugsUsados = new Set<string>((existentesRaw ?? []).map((e) => e.slug));
 
@@ -156,14 +185,23 @@ export async function importarProveedor(
       let serviceId: string;
       if (existe) {
         // Actualizamos contenido pero respetamos el slug y el estado revisado.
+        // Merge i18n: el scrape no debe borrar idiomas ya curados (p.ej. EN)
+        // ni vaciar instrucciones si la PDP no las trae en esta pasada.
         const { error } = await supabase
           .from("services")
           .update({
             titulo_i18n: fila.titulo_i18n,
-            subtitulo_i18n: fila.subtitulo_i18n,
-            descripcion_i18n: fila.descripcion_i18n,
-            punto_encuentro_i18n: fila.punto_encuentro_i18n,
-            duracion_i18n: fila.duracion_i18n,
+            subtitulo_i18n: mergeI18n(existe.subtitulo_i18n, fila.subtitulo_i18n),
+            descripcion_i18n: mergeI18n(existe.descripcion_i18n, fila.descripcion_i18n),
+            punto_encuentro_i18n: mergeI18n(
+              existe.punto_encuentro_i18n,
+              fila.punto_encuentro_i18n
+            ),
+            instrucciones_i18n: mergeI18n(
+              existe.instrucciones_i18n,
+              fila.instrucciones_i18n
+            ),
+            duracion_i18n: mergeI18n(existe.duracion_i18n, fila.duracion_i18n),
             precio_desde: fila.precio_desde,
             imagen_url: fila.imagen_url,
             url_redireccion: fila.url_redireccion,
@@ -261,14 +299,45 @@ function unicoSlug(base: string, usados: Set<string>): string {
   return slug;
 }
 
+function asI18n(v: unknown): Record<string, string> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === "string" && val.trim()) out[k] = val.trim();
+  }
+  return out;
+}
+
+// Fusiona i18n: solo sobrescribe claves con texto nuevo no vacío.
+function mergeI18n(
+  prev: Record<string, string>,
+  next: Record<string, string>
+): Record<string, string> {
+  const out = { ...prev };
+  for (const [k, v] of Object.entries(next)) {
+    if (typeof v === "string" && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
+
 function mapItem(
   item: ScrapedItem,
   ctx: { tenantId: string; providerId: string; categoryId: string; parentId: string | null }
 ) {
   const texto = (item.descripcion ?? "").trim();
-  const sub = texto ? { es: texto.slice(0, 240) } : {};
+  const instrucciones = (item.instrucciones ?? "").trim();
+  const descI18n = asI18n(item.descripcion_i18n);
+  if (texto && !descI18n.es) descI18n.es = texto;
+  const instI18n = asI18n(item.instrucciones_i18n);
+  if (instrucciones && !instI18n.es) instI18n.es = instrucciones;
+  const descPrincipal = descI18n.es ?? texto;
+  const sub: Record<string, string> = descPrincipal
+    ? { es: descPrincipal.slice(0, 240) }
+    : {};
   const puntoEnc = (item.punto_encuentro ?? "").trim();
   const duracion = (item.duracion ?? "").trim();
+  const puntoI18n: Record<string, string> = puntoEnc ? { es: puntoEnc } : {};
+  const duracionI18n: Record<string, string> = duracion ? { es: duracion } : {};
   return {
     tenant_id: ctx.tenantId,
     provider_id: ctx.providerId,
@@ -276,9 +345,10 @@ function mapItem(
     parent_id: ctx.parentId,
     titulo_i18n: { es: item.titulo },
     subtitulo_i18n: sub,
-    descripcion_i18n: texto ? { es: texto } : {},
-    punto_encuentro_i18n: puntoEnc ? { es: puntoEnc } : {},
-    duracion_i18n: duracion ? { es: duracion } : {},
+    descripcion_i18n: descI18n,
+    punto_encuentro_i18n: puntoI18n,
+    instrucciones_i18n: instI18n,
+    duracion_i18n: duracionI18n,
     tipo_nodo: "servicio" as const,
     tipo_pago: "derivado" as const,
     estado: "borrador" as const,

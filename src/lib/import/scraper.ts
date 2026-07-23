@@ -24,6 +24,12 @@ export interface ScrapedItem {
   titulo: string;
   descripcion?: string | null;
   punto_encuentro?: string | null; // lugar de salida (free tours / actividades a pie)
+  // Cómo usar el billete / embarcar (app, activación, mostrar al conductor…).
+  instrucciones?: string | null;
+  // Variantes por idioma obtenidas de la PDP (y hreflang). Tienen prioridad
+  // sobre descripcion/instrucciones al persistir.
+  descripcion_i18n?: Record<string, string> | null;
+  instrucciones_i18n?: Record<string, string> | null;
   duracion?: string | null; // etiqueta de duración (ej. "Medio día", "1 Día")
   precio?: number | null;
   moneda?: string | null;
@@ -63,6 +69,11 @@ export interface FuenteConfig {
   categoria_id?: string;
   // Tarifas por tipo de pasajero: array de configuraciones de tier
   tiers_config?: TierConfig[];
+  // Selectores de la página de detalle (PDP) del producto. Si hay URL en el
+  // item, se descarga la PDP y se enriquecen descripción / instrucciones.
+  detalle?: {
+    descripcion?: string; // selector del bloque largo (p.ej. .pdp-head__description-content)
+  };
 }
 
 const UA =
@@ -237,6 +248,171 @@ function dedupe(items: ScrapedItem[]): ScrapedItem[] {
   return out;
 }
 
+// Separa la descripción de las instrucciones de uso del billete (patrones
+// típicos de Big Bus y equivalentes en EN).
+export function separarDescripcionEInstrucciones(texto: string): {
+  descripcion: string;
+  instrucciones: string | null;
+} {
+  const limpio = texto.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  const markers = [
+    /Acceder a su boleto\s*:/i,
+    /Accessing your ticket\s*:/i,
+    /Access your ticket\s*:/i,
+    /Cómo usar (tu|el) billete\s*:/i,
+    /How to use your ticket\s*:/i,
+  ];
+  for (const re of markers) {
+    const m = limpio.match(re);
+    if (!m || m.index === undefined) continue;
+    const descripcion = limpio.slice(0, m.index).trim();
+    const instrucciones = limpio.slice(m.index).replace(re, "").trim();
+    return {
+      descripcion: descripcion || limpio,
+      instrucciones: instrucciones || null,
+    };
+  }
+  return { descripcion: limpio, instrucciones: null };
+}
+
+function localeDesdeUrl(url: string): string {
+  try {
+    const m = new URL(url).pathname.match(/^\/([a-z]{2})(?:\/|$)/i);
+    if (m) return m[1].toLowerCase();
+  } catch {
+    /* ignore */
+  }
+  return "es";
+}
+
+function alternateUrls($: cheerio.CheerioAPI, pageUrl: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  $('link[rel="alternate"][hreflang]').each((_, el) => {
+    const lang = ($(el).attr("hreflang") ?? "").toLowerCase().split("-")[0];
+    const href = absolutizar(pageUrl, $(el).attr("href"));
+    if (!lang || lang === "x" || !href) return;
+    out[lang] = href;
+  });
+  return out;
+}
+
+function extraerDetallePdp(
+  html: string,
+  pageUrl: string,
+  sel: string
+): { descripcion: string; instrucciones: string | null; alternates: Record<string, string> } | null {
+  const $ = cheerio.load(html);
+  const nodo = $(sel).first();
+  const candidatos = $(sel).toArray().sort((a, b) => {
+    const ca = ($(a).attr("class") ?? "").toLowerCase();
+    const cb = ($(b).attr("class") ?? "").toLowerCase();
+    const score = (c: string) =>
+      (c.includes("-raw") ? 2 : 0) - (c.includes("ellips") ? 2 : 0);
+    return score(cb) - score(ca);
+  });
+  let htmlFrag = "";
+  for (const el of candidatos) {
+    const cls = ($(el).attr("class") ?? "").toLowerCase();
+    if (cls.includes("ellipsised") || cls.includes("ellipsis")) continue;
+    htmlFrag = $(el).html() ?? "";
+    if (htmlFrag.trim()) break;
+  }
+  if (!htmlFrag) htmlFrag = nodo.html() ?? nodo.text();
+  const texto = htmlATexto(htmlFrag);
+  if (!texto || texto.length < 40) return null;
+  const { descripcion, instrucciones } = separarDescripcionEInstrucciones(texto);
+  return { descripcion, instrucciones, alternates: alternateUrls($, pageUrl) };
+}
+
+function htmlATexto(fragment: string): string {
+  const $ = cheerio.load(`<div id="root">${fragment}</div>`);
+  $("#root").find("br").replaceWith("\n");
+  $("#root").find("p,li,div").each((_, el) => {
+    const $el = $(el);
+    $el.append("\n");
+  });
+  return $("#root")
+    .text()
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function enriquecerDesdeDetalle(
+  items: ScrapedItem[],
+  cfg: FuenteConfig
+): Promise<{ items: ScrapedItem[]; notas: string[] }> {
+  const sel = cfg.detalle?.descripcion;
+  if (!sel) return { items, notas: [] };
+  const notas: string[] = [];
+  let ok = 0;
+  let okAlt = 0;
+  const out: ScrapedItem[] = [];
+  for (const it of items) {
+    const url = it.url;
+    if (!url || url.includes("#")) {
+      out.push(it);
+      continue;
+    }
+    try {
+      const { status, body } = await fetchHtml(url);
+      if (status >= 400) {
+        out.push(it);
+        continue;
+      }
+      const primario = extraerDetallePdp(body, url, sel);
+      if (!primario) {
+        out.push(it);
+        continue;
+      }
+      const lang0 = localeDesdeUrl(url);
+      const descripcion_i18n: Record<string, string> = {
+        ...(it.descripcion_i18n ?? {}),
+        [lang0]: primario.descripcion,
+      };
+      const instrucciones_i18n: Record<string, string> = { ...(it.instrucciones_i18n ?? {}) };
+      if (primario.instrucciones) instrucciones_i18n[lang0] = primario.instrucciones;
+
+      // Completar otros idiomas vía hreflang (p.ej. EN desde la PDP ES de Big Bus).
+      for (const [lang, altUrl] of Object.entries(primario.alternates)) {
+        if (lang === lang0 || descripcion_i18n[lang]) continue;
+        if (lang !== "en" && lang !== "es") continue;
+        try {
+          const alt = await fetchHtml(altUrl);
+          if (alt.status >= 400) continue;
+          const parsed = extraerDetallePdp(alt.body, altUrl, sel);
+          if (!parsed) continue;
+          descripcion_i18n[lang] = parsed.descripcion;
+          if (parsed.instrucciones) instrucciones_i18n[lang] = parsed.instrucciones;
+          okAlt += 1;
+        } catch {
+          /* ignore alternate */
+        }
+      }
+
+      out.push({
+        ...it,
+        descripcion: descripcion_i18n.es ?? descripcion_i18n[lang0] ?? primario.descripcion,
+        instrucciones:
+          instrucciones_i18n.es ??
+          instrucciones_i18n[lang0] ??
+          primario.instrucciones ??
+          it.instrucciones ??
+          null,
+        descripcion_i18n,
+        instrucciones_i18n: Object.keys(instrucciones_i18n).length ? instrucciones_i18n : null,
+      });
+      ok += 1;
+    } catch {
+      out.push(it);
+    }
+  }
+  if (ok > 0) notas.push(`Detalle PDP: enriquecidos ${ok} productos.`);
+  if (okAlt > 0) notas.push(`Detalle PDP: ${okAlt} variantes i18n vía hreflang.`);
+  return { items: out, notas };
+}
+
 // Descarga HTML con redirección manual usando el módulo nativo de Node.
 // `fetch`/undici tiene un límite de headers (UND_ERR_HEADERS_OVERFLOW) que
 // algunos CDN anti-bot superan; los módulos http/https nativos no tienen esa restricción.
@@ -306,14 +482,16 @@ export async function scrapeFuente(
   const porJsonLd = leerJsonLd(html, url);
   if (porJsonLd.length > 0) {
     notas.push(`JSON-LD: ${porJsonLd.length} elementos.`);
-    return { items: porJsonLd, metodo: "json-ld", notas };
+    const enriq = await enriquecerDesdeDetalle(porJsonLd, cfg);
+    return { items: enriq.items, metodo: "json-ld", notas: [...notas, ...enriq.notas] };
   }
   notas.push("Sin datos JSON-LD utilizables.");
 
   const porSelectores = leerSelectores(html, url, cfg);
   if (porSelectores.length > 0) {
     notas.push(`Selectores: ${porSelectores.length} elementos.`);
-    return { items: porSelectores, metodo: "selectores", notas };
+    const enriq = await enriquecerDesdeDetalle(porSelectores, cfg);
+    return { items: enriq.items, metodo: "selectores", notas: [...notas, ...enriq.notas] };
   }
   notas.push(
     cfg.item

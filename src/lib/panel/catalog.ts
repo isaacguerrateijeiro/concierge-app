@@ -45,6 +45,7 @@ export interface ServicioPanel {
   subtitulo_i18n: I18n;
   descripcion_i18n: I18n;
   punto_encuentro_i18n: I18n;
+  instrucciones_i18n: I18n;
   precio_desde: number | null;
   iva_tipo: number | null;
   moneda: string;
@@ -140,6 +141,7 @@ interface ServicioRow {
   subtitulo_i18n: unknown;
   descripcion_i18n: unknown;
   punto_encuentro_i18n: unknown;
+  instrucciones_i18n: unknown;
   precio_desde: number | string | null;
   iva_tipo: number | string | null;
   moneda: string;
@@ -161,7 +163,7 @@ interface ServicioRow {
 }
 
 const SERVICE_COLS =
-  "id, slug, titulo_i18n, subtitulo_i18n, descripcion_i18n, punto_encuentro_i18n, precio_desde, iva_tipo, moneda, tipo_pago, tipo_nodo, estado, parent_id, imagen_url, fuente_ref, url_redireccion, icono, activo, orden, category_id, provider_id, capacidad_diaria, categories(nombre_i18n), providers(nombre, color_marca)";
+  "id, slug, titulo_i18n, subtitulo_i18n, descripcion_i18n, punto_encuentro_i18n, instrucciones_i18n, precio_desde, iva_tipo, moneda, tipo_pago, tipo_nodo, estado, parent_id, imagen_url, fuente_ref, url_redireccion, icono, activo, orden, category_id, provider_id, capacidad_diaria, categories(nombre_i18n), providers(nombre, color_marca)";
 
 function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
   return {
@@ -171,6 +173,7 @@ function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
     subtitulo_i18n: i18n(s.subtitulo_i18n),
     descripcion_i18n: i18n(s.descripcion_i18n),
     punto_encuentro_i18n: i18n(s.punto_encuentro_i18n),
+    instrucciones_i18n: i18n(s.instrucciones_i18n),
     precio_desde: num(s.precio_desde),
     iva_tipo: num(s.iva_tipo),
     moneda: s.moneda,

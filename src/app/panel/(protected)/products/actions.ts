@@ -134,6 +134,7 @@ export async function guardarServicio(
   const subtitulo = i18nDesdeForm(formData, "subtitulo", locales);
   const descripcion = i18nDesdeForm(formData, "descripcion", locales);
   const puntoEncuentro = i18nDesdeForm(formData, "punto_encuentro", locales);
+  const instrucciones = i18nDesdeForm(formData, "instrucciones", locales);
   if (!titulo[locales[0]] && Object.keys(titulo).length === 0) {
     return { error: "El título es obligatorio." };
   }
@@ -160,6 +161,7 @@ export async function guardarServicio(
     subtitulo_i18n: subtitulo,
     descripcion_i18n: descripcion,
     punto_encuentro_i18n: puntoEncuentro,
+    instrucciones_i18n: instrucciones,
   };
 
   let serviceId: string;

@@ -76,6 +76,7 @@ export const DEFAULT_UI: Record<string, Record<string, string>> = {
     maxSeats: "Has alcanzado el máximo de plazas para esta fecha.",
     about: "Sobre la experiencia",
     meetingPoint: "Punto de encuentro",
+    howToUse: "Cómo usar tu billete",
   },
   en: {
     concierge: "Digital concierge",
@@ -145,6 +146,7 @@ export const DEFAULT_UI: Record<string, Record<string, string>> = {
     maxSeats: "You've reached the maximum seats for this date.",
     about: "About the experience",
     meetingPoint: "Meeting point",
+    howToUse: "How to use your ticket",
   },
 };
 
