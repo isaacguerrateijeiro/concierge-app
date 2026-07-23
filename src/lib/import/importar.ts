@@ -162,7 +162,7 @@ export async function importarProveedor(
   const { data: existentesRaw } = await supabase
     .from("services")
     .select(
-      "id, slug, fuente_ref, tipo_nodo, estado, titulo_i18n, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
+      "id, slug, fuente_ref, tipo_nodo, tipo_pago, estado, titulo_i18n, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
     )
     .eq("tenant_id", tenantId)
     .eq("provider_id", providerId);
@@ -170,6 +170,7 @@ export async function importarProveedor(
     id: string;
     slug: string;
     tipo_nodo: string;
+    tipo_pago: string | null;
     estado: string;
     fuente_ref: string | null;
     titulo_es: string;
@@ -180,6 +181,7 @@ export async function importarProveedor(
     duracion_i18n: Record<string, string>;
   };
   const existentes = new Map<string, Existente>();
+  const hojasPorTitulo = new Map<string, Existente>();
   const gruposPorSlug = new Map<string, Existente>();
   const gruposPorTitulo = new Map<string, Existente>();
   for (const e of existentesRaw ?? []) {
@@ -188,6 +190,7 @@ export async function importarProveedor(
       id: e.id,
       slug: e.slug,
       tipo_nodo: e.tipo_nodo,
+      tipo_pago: e.tipo_pago,
       estado: e.estado,
       fuente_ref: e.fuente_ref,
       titulo_es: tituloEs,
@@ -201,6 +204,8 @@ export async function importarProveedor(
     if (e.tipo_nodo === "grupo") {
       gruposPorSlug.set(e.slug, row);
       if (tituloEs) gruposPorTitulo.set(tituloEs.trim().toLowerCase(), row);
+    } else if (tituloEs) {
+      hojasPorTitulo.set(tituloEs.trim().toLowerCase(), row);
     }
   }
   const slugsUsados = new Set<string>((existentesRaw ?? []).map((e) => e.slug));
@@ -224,6 +229,13 @@ export async function importarProveedor(
     typeof cfg.grupo_default === "string" && cfg.grupo_default.trim()
       ? cfg.grupo_default.trim()
       : null;
+  // Free tours / stock local: no convertir a enlace externo.
+  const tipoPagoCfg =
+    cfg.tipo_pago === "integrado" || cfg.solo_gratuitos === true
+      ? ("integrado" as const)
+      : ("derivado" as const);
+  // Si es false, solo enriquece servicios ya existentes (no crea hojas nuevas).
+  const crearNuevos = cfg.crear_nuevos !== false;
   let parentFijoId: string | null = null;
   if (parentSlugCfg) {
     const { data: padre } = await supabase
@@ -325,7 +337,7 @@ export async function importarProveedor(
     creados++;
   }
 
-  // 2) Upsert de cada item como hoja 'servicio' publicada (derivado a origen).
+  // 2) Upsert de cada item como hoja 'servicio' publicada.
   for (const item of scrape.items) {
     try {
       const refNorm = normalizeFuenteRef(item.ref);
@@ -334,22 +346,45 @@ export async function importarProveedor(
         notas.push(`Omitido (enlace de listado): ${item.titulo}`);
         continue;
       }
-      vistos.add(refNorm);
       // Preferir el grupo del listado; si no, el padre fijo (Free Tour, etc.).
       const parentId =
         (item.grupo ? grupos.get(item.grupo.trim()) ?? null : null) ?? parentFijoId;
-      const existe = existentes.get(refNorm);
-      const fila = mapItem(item, { tenantId, providerId, categoryId, parentId, ahora });
+      const existe =
+        existentes.get(refNorm) ??
+        hojasPorTitulo.get(item.titulo.trim().toLowerCase()) ??
+        null;
+      if (!existe && !crearNuevos) {
+        notas.push(`Sin match local (no se crea): ${item.titulo}`);
+        continue;
+      }
+      if (existe?.fuente_ref) vistos.add(normalizeFuenteRef(existe.fuente_ref));
+      vistos.add(refNorm);
+
+      const integrado =
+        tipoPagoCfg === "integrado" || existe?.tipo_pago === "integrado";
+      const fila = mapItem(item, {
+        tenantId,
+        providerId,
+        categoryId,
+        parentId,
+        ahora,
+        tipoPago: integrado ? "integrado" : "derivado",
+      });
 
       let serviceId: string;
       if (existe) {
-        // Actualizamos contenido y republicamos si estaba despublicado.
-        // Merge i18n: el scrape no debe borrar idiomas ya curados (p.ej. EN)
-        // ni vaciar instrucciones si la PDP no las trae en esta pasada.
+        // Actualizamos contenido. Si el servicio es integrado (free tour local),
+        // no lo convertimos a enlace externo ni tocamos tipo_pago/url.
+        const tituloScraped = item.titulo.trim().toLowerCase();
+        const tituloOk =
+          tituloScraped &&
+          tituloScraped !== "madrid a pie" &&
+          tituloScraped !== existe.titulo_es.trim().toLowerCase() &&
+          item.titulo.trim().length > 3;
         const { error } = await supabase
           .from("services")
           .update({
-            titulo_i18n: fila.titulo_i18n,
+            ...(tituloOk ? { titulo_i18n: fila.titulo_i18n } : {}),
             subtitulo_i18n: mergeI18n(existe.subtitulo_i18n, fila.subtitulo_i18n),
             descripcion_i18n: mergeI18n(existe.descripcion_i18n, fila.descripcion_i18n),
             punto_encuentro_i18n: mergeI18n(
@@ -361,13 +396,18 @@ export async function importarProveedor(
               fila.instrucciones_i18n
             ),
             duracion_i18n: mergeI18n(existe.duracion_i18n, fila.duracion_i18n),
-            precio_desde: fila.precio_desde,
             imagen_url: fila.imagen_url,
-            url_redireccion: fila.url_redireccion,
             parent_id: parentId,
             importado_at: fila.importado_at,
             estado: "publicado",
             activo: true,
+            tipo_pago: integrado ? "integrado" : "derivado",
+            url_redireccion: integrado ? null : fila.url_redireccion,
+            ...(integrado
+              ? fila.precio_desde !== null
+                ? { precio_desde: fila.precio_desde }
+                : {}
+              : { precio_desde: fila.precio_desde }),
           })
           .eq("id", existe.id)
           .eq("tenant_id", tenantId);
@@ -537,6 +577,7 @@ function mapItem(
     categoryId: string;
     parentId: string | null;
     ahora: string;
+    tipoPago: "integrado" | "derivado";
   }
 ) {
   const texto = (item.descripcion ?? "").trim();
@@ -553,6 +594,7 @@ function mapItem(
   const duracion = (item.duracion ?? "").trim();
   const puntoI18n: Record<string, string> = puntoEnc ? { es: puntoEnc } : {};
   const duracionI18n: Record<string, string> = duracion ? { es: duracion } : {};
+  const integrado = ctx.tipoPago === "integrado";
   return {
     tenant_id: ctx.tenantId,
     provider_id: ctx.providerId,
@@ -565,14 +607,15 @@ function mapItem(
     instrucciones_i18n: instI18n,
     duracion_i18n: duracionI18n,
     tipo_nodo: "servicio" as const,
-    tipo_pago: "derivado" as const,
+    tipo_pago: ctx.tipoPago,
     estado: "publicado" as const,
     activo: true,
-    precio_desde: item.precio ?? null,
+    precio_desde: integrado ? item.precio ?? 0 : item.precio ?? null,
     moneda: item.moneda || "EUR",
     imagen_url: item.imagen ?? null,
-    url_redireccion: item.url ?? null,
+    url_redireccion: integrado ? null : item.url ?? null,
     fuente_ref: item.ref,
     importado_at: ctx.ahora,
+    ...(integrado ? { capacidad_diaria: 30 } : {}),
   };
 }

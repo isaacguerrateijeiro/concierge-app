@@ -78,7 +78,15 @@ export async function guardarFuente(
       : {};
 
   const config: Record<string, unknown> = {};
-  for (const k of ["detalle", "grupos", "tiers_config", "parent_slug", "grupo_default"] as const) {
+  for (const k of [
+    "detalle",
+    "grupos",
+    "tiers_config",
+    "parent_slug",
+    "grupo_default",
+    "tipo_pago",
+    "crear_nuevos",
+  ] as const) {
     if (prevCfg[k] !== undefined) config[k] = prevCfg[k];
   }
   if (d.categoria_id) config.categoria_id = d.categoria_id;
