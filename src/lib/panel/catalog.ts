@@ -20,6 +20,8 @@ export interface ProveedorMini {
   nombre: string;
   slug: string;
   color_marca: string | null;
+  /** Tiene URL de fuente configurada (importar desde web). */
+  tieneFuente: boolean;
 }
 
 export interface PriceTierPanel {
@@ -130,11 +132,17 @@ export async function listarProveedores(tenantId: string): Promise<ProveedorMini
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("providers")
-    .select("id, nombre, slug, color_marca")
+    .select("id, nombre, slug, color_marca, fuente_url")
     .eq("tenant_id", tenantId)
     .order("nombre", { ascending: true });
   if (error) throw new Error(`listarProveedores: ${error.message}`);
-  return data ?? [];
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    nombre: p.nombre,
+    slug: p.slug,
+    color_marca: p.color_marca,
+    tieneFuente: !!p.fuente_url,
+  }));
 }
 
 interface ServicioRow {
@@ -282,9 +290,8 @@ export async function listarServicios(
   return servicios;
 }
 
-// Devuelve los servicios como árbol con profundidad, ordenados por categoría y
-// orden, listo para pintar con sangría en el panel.
-export function arbolServicios(servicios: ServicioPanel[]): ServicioNodo[] {
+/** Construye el árbol anidado (raíces con children) ordenado por `orden`. */
+export function arbolServiciosAnidado(servicios: ServicioPanel[]): ServicioNodo[] {
   const porId = new Map<string, ServicioNodo>();
   for (const s of servicios) porId.set(s.id, { ...s, children: [], depth: 0 });
 
@@ -297,16 +304,27 @@ export function arbolServicios(servicios: ServicioPanel[]): ServicioNodo[] {
     }
   }
 
-  const flat: ServicioNodo[] = [];
-  const visitar = (nodos: ServicioNodo[], depth: number) => {
+  const asignarDepth = (nodos: ServicioNodo[], depth: number) => {
     nodos.sort((a, b) => a.orden - b.orden);
     for (const n of nodos) {
       n.depth = depth;
-      flat.push(n);
-      visitar(n.children, depth + 1);
+      asignarDepth(n.children, depth + 1);
     }
   };
-  visitar(raices, 0);
+  asignarDepth(raices, 0);
+  return raices;
+}
+
+// Devuelve los servicios como lista plana con profundidad (sangría en selects).
+export function arbolServicios(servicios: ServicioPanel[]): ServicioNodo[] {
+  const flat: ServicioNodo[] = [];
+  const visitar = (nodos: ServicioNodo[]) => {
+    for (const n of nodos) {
+      flat.push(n);
+      visitar(n.children);
+    }
+  };
+  visitar(arbolServiciosAnidado(servicios));
   return flat;
 }
 

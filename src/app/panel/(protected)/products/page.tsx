@@ -1,151 +1,88 @@
-import Link from "next/link";
 import { requirePanelContext } from "@/lib/auth/context";
-import { listarServicios, arbolServicios, loc } from "@/lib/panel/catalog";
-import { fmtEuro, fmtFechaHora } from "@/lib/panel/format";
 import {
-  VisibilityToggle,
-  PublishToggle,
-  ServiceRowActions,
-} from "./ServiceRowActions";
+  arbolServiciosAnidado,
+  listarProveedores,
+  listarServicios,
+  loc,
+  type ServicioNodo,
+} from "@/lib/panel/catalog";
+import {
+  CatalogTree,
+  type CatalogNode,
+  type CatalogProviderGroup,
+} from "./CatalogTree";
 
 export const dynamic = "force-dynamic";
 
-function esImportReciente(iso: string | null, horas = 48): boolean {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() < horas * 60 * 60 * 1000;
+function toCatalogNode(n: ServicioNodo, localeDefault: string): CatalogNode {
+  const { children, tiers: _t, availability: _a, ...rest } = n;
+  return {
+    ...rest,
+    titulo: loc(n.titulo_i18n, localeDefault) || n.slug,
+    children: children.map((c) => toCatalogNode(c, localeDefault)),
+  };
+}
+
+function countLeaves(nodes: CatalogNode[]): number {
+  let n = 0;
+  for (const node of nodes) {
+    if (node.tipo_nodo === "servicio") n += 1;
+    n += countLeaves(node.children);
+  }
+  return n;
 }
 
 export default async function ProductsPage() {
   const ctx = await requirePanelContext();
-  const servicios = await listarServicios(ctx.currentTenant.id);
-  const nodos = arbolServicios(servicios);
+  const [servicios, proveedores] = await Promise.all([
+    listarServicios(ctx.currentTenant.id),
+    listarProveedores(ctx.currentTenant.id),
+  ]);
   const localeDefault = "es";
-
-  return (
-    <>
-      <div style={{ display: "flex", marginBottom: 18, alignItems: "center", gap: 10 }}>
-        <div style={{ flex: 1 }} />
-        <Link className="btn btn-ghost" href="/panel/products/import">
-          Importar desde web
-        </Link>
-        <Link className="btn btn-accent" href="/panel/products/nuevo">
-          + Nuevo nodo
-        </Link>
-      </div>
-
-      <div className="table-wrap">
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Nodo</th>
-                <th>Proveedor</th>
-                <th>Categoría</th>
-                <th>Precio desde</th>
-                <th>Pago</th>
-                <th>IVA</th>
-                <th>Estado</th>
-                <th>Importado</th>
-                <th>Visible</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {nodos.length === 0 ? (
-                <tr>
-                  <td colSpan={10}>
-                    <div className="empty-note">Aún no hay nodos. Crea el primero o importa desde la web.</div>
-                  </td>
-                </tr>
-              ) : (
-                nodos.map((s) => {
-                  const titulo = loc(s.titulo_i18n, localeDefault);
-                  const esGrupo = s.tipo_nodo === "grupo";
-                  const reciente = esImportReciente(s.importado_at);
-                  const esNuevo =
-                    !!s.fuente_ref &&
-                    reciente &&
-                    esImportReciente(s.created_at) &&
-                    s.estado === "publicado";
-                  const pillEstado =
-                    s.estado === "publicado"
-                      ? "live"
-                      : s.estado === "despublicado"
-                        ? "paused"
-                        : "draft";
-                  const labelEstado =
-                    s.estado === "publicado"
-                      ? "Publicado"
-                      : s.estado === "despublicado"
-                        ? "Despublicado"
-                        : "Borrador";
-                  return (
-                    <tr
-                      key={s.id}
-                      style={
-                        s.estado === "borrador" || s.estado === "despublicado"
-                          ? { opacity: 0.7 }
-                          : undefined
-                      }
-                    >
-                      <td className="td-strong">
-                        <span style={{ display: "inline-block", width: s.depth * 22 }} />
-                        {esGrupo ? (
-                          <span className="badge-soft" style={{ marginRight: 8 }}>grupo</span>
-                        ) : (
-                          <span
-                            className="brand-dot"
-                            style={{ background: s.proveedorColor ?? "var(--ink-3)" }}
-                          />
-                        )}
-                        {s.icono ? `${s.icono} ` : ""}
-                        {titulo}
-                        {esNuevo && (
-                          <span className="badge-soft" style={{ marginLeft: 8 }}>
-                            nuevo
-                          </span>
-                        )}
-                      </td>
-                      <td>{s.proveedorNombre}</td>
-                      <td>
-                        <span className="badge-soft">{s.categoriaNombre}</span>
-                      </td>
-                      <td className="td-strong">
-                        {esGrupo ? "—" : s.precio_desde !== null ? fmtEuro(s.precio_desde, true) : "—"}
-                      </td>
-                      <td>
-                        {esGrupo ? (
-                          "—"
-                        ) : (
-                          <span className={`pill ${s.tipo_pago === "derivado" ? "ext" : "stripe"}`}>
-                            {s.tipo_pago === "derivado" ? "Derivado" : "Stripe"}
-                          </span>
-                        )}
-                      </td>
-                      <td className="mono">{!esGrupo && s.iva_tipo !== null ? `${s.iva_tipo}%` : "—"}</td>
-                      <td>
-                        <span className={`pill ${pillEstado}`}>{labelEstado}</span>
-                      </td>
-                      <td className="mono" style={{ whiteSpace: "nowrap", fontSize: 12, color: "var(--ink-2)" }}>
-                        {s.importado_at ? fmtFechaHora(s.importado_at) : "—"}
-                      </td>
-                      <td>
-                        <VisibilityToggle id={s.id} activo={s.activo} />
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          <PublishToggle id={s.id} estado={s.estado} />
-                          <ServiceRowActions id={s.id} nombre={titulo} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </>
+  const roots = arbolServiciosAnidado(servicios).map((n) =>
+    toCatalogNode(n, localeDefault)
   );
+
+  const byProvider = new Map<string | null, CatalogNode[]>();
+  for (const root of roots) {
+    const key = root.provider_id || null;
+    const list = byProvider.get(key) ?? [];
+    list.push(root);
+    byProvider.set(key, list);
+  }
+
+  const provById = new Map(proveedores.map((p) => [p.id, p]));
+  const groups: CatalogProviderGroup[] = [];
+
+  // Orden: proveedores conocidos (alfabético), luego huérfanos.
+  for (const p of proveedores) {
+    const rootsProv = byProvider.get(p.id);
+    if (!rootsProv?.length) continue;
+    groups.push({
+      providerId: p.id,
+      nombre: p.nombre,
+      color: p.color_marca,
+      slug: p.slug,
+      tieneFuente: p.tieneFuente,
+      roots: rootsProv,
+      numServicios: countLeaves(rootsProv),
+    });
+    byProvider.delete(p.id);
+  }
+
+  for (const [id, rootsProv] of byProvider) {
+    if (!rootsProv.length) continue;
+    const p = id ? provById.get(id) : undefined;
+    groups.push({
+      providerId: id,
+      nombre: p?.nombre ?? rootsProv[0]?.proveedorNombre ?? "Sin proveedor",
+      color: p?.color_marca ?? rootsProv[0]?.proveedorColor ?? null,
+      slug: p?.slug ?? null,
+      tieneFuente: p?.tieneFuente ?? false,
+      roots: rootsProv,
+      numServicios: countLeaves(rootsProv),
+    });
+  }
+
+  return <CatalogTree groups={groups} providers={proveedores} />;
 }
