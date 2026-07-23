@@ -1093,6 +1093,7 @@ export type Database = {
           provider_id: string
           punto_encuentro_i18n: Json
           instrucciones_i18n: Json
+          importado_at: string | null
           slug: string
           subtitulo_i18n: Json
           tenant_id: string
@@ -1112,6 +1113,7 @@ export type Database = {
           estado?: string
           fuente_ref?: string | null
           icono?: string | null
+          importado_at?: string | null
           id?: string
           imagen_url?: string | null
           iva_tipo?: number | null
@@ -1143,6 +1145,7 @@ export type Database = {
           icono?: string | null
           id?: string
           imagen_url?: string | null
+          importado_at?: string | null
           iva_tipo?: number | null
           moneda?: string
           orden?: number

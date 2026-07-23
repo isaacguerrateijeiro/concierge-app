@@ -35,8 +35,8 @@ export default async function ImportPage() {
         <div className="fs-title">Importar catálogo desde la web</div>
         <div className="fs-desc">
           Configura la URL de origen de cada proveedor. La importación detecta los
-          productos (datos estructurados o selectores) y los crea como{" "}
-          <strong>borradores</strong> para que los revises antes de publicarlos.
+          productos (datos estructurados o selectores), los publica automáticamente
+          y despublica los que ya no existen en la fuente.
         </div>
       </div>
 

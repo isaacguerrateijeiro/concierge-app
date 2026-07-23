@@ -11,6 +11,7 @@ export interface ResultadoImportacion {
   detectados: number;
   creados: number;
   actualizados: number;
+  despublicados: number;
   errores: number;
   metodo: string;
   notas: string[];
@@ -99,12 +100,13 @@ export async function importarProveedor(
 
   const scrape = await scrapeFuente(prov.fuente_url, selectores);
   const notas = [...scrape.notas];
+  const ahora = new Date().toISOString();
 
   // Servicios ya importados de este proveedor (idempotencia por fuente_ref).
   const { data: existentesRaw } = await supabase
     .from("services")
     .select(
-      "id, slug, fuente_ref, tipo_nodo, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
+      "id, slug, fuente_ref, tipo_nodo, estado, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
     )
     .eq("tenant_id", tenantId)
     .eq("provider_id", providerId)
@@ -112,6 +114,8 @@ export async function importarProveedor(
   type Existente = {
     id: string;
     slug: string;
+    tipo_nodo: string;
+    estado: string;
     descripcion_i18n: Record<string, string>;
     instrucciones_i18n: Record<string, string>;
     punto_encuentro_i18n: Record<string, string>;
@@ -124,6 +128,8 @@ export async function importarProveedor(
     existentes.set(e.fuente_ref, {
       id: e.id,
       slug: e.slug,
+      tipo_nodo: e.tipo_nodo,
+      estado: e.estado,
       descripcion_i18n: asI18n(e.descripcion_i18n),
       instrucciones_i18n: asI18n(e.instrucciones_i18n),
       punto_encuentro_i18n: asI18n(e.punto_encuentro_i18n),
@@ -135,7 +141,9 @@ export async function importarProveedor(
 
   let creados = 0;
   let actualizados = 0;
+  let despublicados = 0;
   let errores = 0;
+  const vistos = new Set<string>();
 
   // 1) Asegurar los nodos 'grupo' para cada etiqueta de agrupación detectada.
   const grupos = new Map<string, string>(); // label -> service id (parent)
@@ -144,9 +152,27 @@ export async function importarProveedor(
   );
   for (const label of etiquetas) {
     const ref = `grupo:${slugify(label)}`;
+    vistos.add(ref);
     const ya = existentes.get(ref);
     if (ya) {
       grupos.set(label, ya.id);
+      // Reapareció / sigue en fuente → publicado y visible.
+      const { error } = await supabase
+        .from("services")
+        .update({
+          estado: "publicado",
+          activo: true,
+          importado_at: ahora,
+          titulo_i18n: { es: label },
+        })
+        .eq("id", ya.id)
+        .eq("tenant_id", tenantId);
+      if (error) {
+        errores++;
+        notas.push(`Grupo "${label}": ${error.message}`);
+      } else {
+        actualizados++;
+      }
       continue;
     }
     const slug = unicoSlug(`grp-${slugify(label)}`, slugsUsados);
@@ -160,9 +186,10 @@ export async function importarProveedor(
         titulo_i18n: { es: label },
         subtitulo_i18n: {},
         tipo_nodo: "grupo",
-        estado: "borrador",
-        activo: false,
+        estado: "publicado",
+        activo: true,
         fuente_ref: ref,
+        importado_at: ahora,
       })
       .select("id")
       .single();
@@ -175,16 +202,17 @@ export async function importarProveedor(
     creados++;
   }
 
-  // 2) Upsert de cada item como hoja 'servicio' en borrador (derivado a origen).
+  // 2) Upsert de cada item como hoja 'servicio' publicada (derivado a origen).
   for (const item of scrape.items) {
     try {
+      vistos.add(item.ref);
       const parentId = item.grupo ? grupos.get(item.grupo.trim()) ?? null : null;
       const existe = existentes.get(item.ref);
-      const fila = mapItem(item, { tenantId, providerId, categoryId, parentId });
+      const fila = mapItem(item, { tenantId, providerId, categoryId, parentId, ahora });
 
       let serviceId: string;
       if (existe) {
-        // Actualizamos contenido pero respetamos el slug y el estado revisado.
+        // Actualizamos contenido y republicamos si estaba despublicado.
         // Merge i18n: el scrape no debe borrar idiomas ya curados (p.ej. EN)
         // ni vaciar instrucciones si la PDP no las trae en esta pasada.
         const { error } = await supabase
@@ -206,6 +234,9 @@ export async function importarProveedor(
             imagen_url: fila.imagen_url,
             url_redireccion: fila.url_redireccion,
             parent_id: parentId,
+            importado_at: fila.importado_at,
+            estado: "publicado",
+            activo: true,
           })
           .eq("id", existe.id)
           .eq("tenant_id", tenantId);
@@ -258,6 +289,35 @@ export async function importarProveedor(
     }
   }
 
+  // 3) Lo que tenía fuente_ref y ya no aparece en el scrape → despublicado.
+  // Seguridad: no despublicar si la fuente falló o no devolvió nada.
+  if (scrape.metodo !== "ninguno" && scrape.items.length > 0) {
+    for (const e of existentesRaw ?? []) {
+      if (!e.fuente_ref || vistos.has(e.fuente_ref)) continue;
+      if (e.estado === "despublicado") continue;
+      const { error } = await supabase
+        .from("services")
+        .update({
+          estado: "despublicado",
+          activo: false,
+          importado_at: ahora,
+        })
+        .eq("id", e.id)
+        .eq("tenant_id", tenantId);
+      if (error) {
+        errores++;
+        notas.push(`Despublicar ${e.slug}: ${error.message}`);
+      } else {
+        despublicados++;
+      }
+    }
+    if (despublicados > 0) {
+      notas.push(`Despublicados ${despublicados} productos ausentes en la fuente.`);
+    }
+  } else if (scrape.items.length === 0) {
+    notas.push("Sin items en fuente: no se despublica nada (protección).");
+  }
+
   const estado: ResultadoImportacion["estado"] =
     scrape.items.length === 0 && errores === 0
       ? "error"
@@ -275,7 +335,7 @@ export async function importarProveedor(
     creados,
     actualizados,
     errores,
-    detalle: { metodo: scrape.metodo, notas },
+    detalle: { metodo: scrape.metodo, notas, despublicados },
   });
 
   return {
@@ -283,6 +343,7 @@ export async function importarProveedor(
     detectados: scrape.items.length,
     creados,
     actualizados,
+    despublicados,
     errores,
     metodo: scrape.metodo,
     notas,
@@ -322,7 +383,13 @@ function mergeI18n(
 
 function mapItem(
   item: ScrapedItem,
-  ctx: { tenantId: string; providerId: string; categoryId: string; parentId: string | null }
+  ctx: {
+    tenantId: string;
+    providerId: string;
+    categoryId: string;
+    parentId: string | null;
+    ahora: string;
+  }
 ) {
   const texto = (item.descripcion ?? "").trim();
   const instrucciones = (item.instrucciones ?? "").trim();
@@ -351,12 +418,13 @@ function mapItem(
     duracion_i18n: duracionI18n,
     tipo_nodo: "servicio" as const,
     tipo_pago: "derivado" as const,
-    estado: "borrador" as const,
-    activo: false,
+    estado: "publicado" as const,
+    activo: true,
     precio_desde: item.precio ?? null,
     moneda: item.moneda || "EUR",
     imagen_url: item.imagen ?? null,
     url_redireccion: item.url ?? null,
     fuente_ref: item.ref,
+    importado_at: ctx.ahora,
   };
 }

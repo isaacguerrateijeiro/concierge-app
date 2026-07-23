@@ -14,25 +14,25 @@ export function PublishToggle({
   estado,
 }: {
   id: string;
-  estado: "borrador" | "publicado";
+  estado: "borrador" | "publicado" | "despublicado";
 }) {
   const [pending, start] = useTransition();
   const router = useRouter();
-  const esBorrador = estado === "borrador";
+  const publicado = estado === "publicado";
   return (
     <button
       type="button"
       className="mini-btn"
       disabled={pending}
-      title={esBorrador ? "Publicar" : "Pasar a borrador"}
+      title={publicado ? "Despublicar" : "Publicar"}
       onClick={() =>
         start(async () => {
-          await cambiarEstadoServicio(id, esBorrador ? "publicado" : "borrador");
+          await cambiarEstadoServicio(id, publicado ? "despublicado" : "publicado");
           router.refresh();
         })
       }
     >
-      {esBorrador ? "↑" : "↓"}
+      {publicado ? "↓" : "↑"}
     </button>
   );
 }

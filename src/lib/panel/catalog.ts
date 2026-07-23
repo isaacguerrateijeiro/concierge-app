@@ -51,7 +51,7 @@ export interface ServicioPanel {
   moneda: string;
   tipo_pago: string | null;
   tipo_nodo: "grupo" | "servicio";
-  estado: "borrador" | "publicado";
+  estado: "borrador" | "publicado" | "despublicado";
   parent_id: string | null;
   imagen_url: string | null;
   fuente_ref: string | null;
@@ -65,6 +65,9 @@ export interface ServicioPanel {
   proveedorNombre: string;
   proveedorColor: string | null;
   capacidad_diaria: number | null;
+  // Última importación batch/scrape; null si el nodo es manual.
+  importado_at: string | null;
+  created_at: string;
   tiers: PriceTierPanel[];
   availability: AvailabilityPanel[];
 }
@@ -158,12 +161,14 @@ interface ServicioRow {
   category_id: string;
   provider_id: string;
   capacidad_diaria: number | null;
+  importado_at: string | null;
+  created_at: string;
   categories: { nombre_i18n: unknown } | null;
   providers: { nombre: string; color_marca: string | null } | null;
 }
 
 const SERVICE_COLS =
-  "id, slug, titulo_i18n, subtitulo_i18n, descripcion_i18n, punto_encuentro_i18n, instrucciones_i18n, precio_desde, iva_tipo, moneda, tipo_pago, tipo_nodo, estado, parent_id, imagen_url, fuente_ref, url_redireccion, icono, activo, orden, category_id, provider_id, capacidad_diaria, categories(nombre_i18n), providers(nombre, color_marca)";
+  "id, slug, titulo_i18n, subtitulo_i18n, descripcion_i18n, punto_encuentro_i18n, instrucciones_i18n, precio_desde, iva_tipo, moneda, tipo_pago, tipo_nodo, estado, parent_id, imagen_url, fuente_ref, url_redireccion, icono, activo, orden, category_id, provider_id, capacidad_diaria, importado_at, created_at, categories(nombre_i18n), providers(nombre, color_marca)";
 
 function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
   return {
@@ -179,7 +184,12 @@ function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
     moneda: s.moneda,
     tipo_pago: s.tipo_pago,
     tipo_nodo: s.tipo_nodo === "grupo" ? "grupo" : "servicio",
-    estado: s.estado === "borrador" ? "borrador" : "publicado",
+    estado:
+      s.estado === "despublicado"
+        ? "despublicado"
+        : s.estado === "borrador"
+          ? "borrador"
+          : "publicado",
     parent_id: s.parent_id,
     imagen_url: s.imagen_url,
     fuente_ref: s.fuente_ref,
@@ -193,6 +203,8 @@ function mapServicio(s: ServicioRow, localeDefault: string): ServicioPanel {
     proveedorNombre: s.providers?.nombre ?? "—",
     proveedorColor: s.providers?.color_marca ?? null,
     capacidad_diaria: s.capacidad_diaria ?? null,
+    importado_at: s.importado_at ?? null,
+    created_at: s.created_at,
     tiers: [],
     availability: [],
   };

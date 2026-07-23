@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePanelContext } from "@/lib/auth/context";
 import { listarServicios, arbolServicios, loc } from "@/lib/panel/catalog";
-import { fmtEuro } from "@/lib/panel/format";
+import { fmtEuro, fmtFechaHora } from "@/lib/panel/format";
 import {
   VisibilityToggle,
   PublishToggle,
@@ -9,6 +9,11 @@ import {
 } from "./ServiceRowActions";
 
 export const dynamic = "force-dynamic";
+
+function esImportReciente(iso: string | null, horas = 48): boolean {
+  if (!iso) return false;
+  return Date.now() - new Date(iso).getTime() < horas * 60 * 60 * 1000;
+}
 
 export default async function ProductsPage() {
   const ctx = await requirePanelContext();
@@ -40,6 +45,7 @@ export default async function ProductsPage() {
                 <th>Pago</th>
                 <th>IVA</th>
                 <th>Estado</th>
+                <th>Importado</th>
                 <th>Visible</th>
                 <th></th>
               </tr>
@@ -47,7 +53,7 @@ export default async function ProductsPage() {
             <tbody>
               {nodos.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>
+                  <td colSpan={10}>
                     <div className="empty-note">Aún no hay nodos. Crea el primero o importa desde la web.</div>
                   </td>
                 </tr>
@@ -55,8 +61,33 @@ export default async function ProductsPage() {
                 nodos.map((s) => {
                   const titulo = loc(s.titulo_i18n, localeDefault);
                   const esGrupo = s.tipo_nodo === "grupo";
+                  const reciente = esImportReciente(s.importado_at);
+                  const esNuevo =
+                    !!s.fuente_ref &&
+                    reciente &&
+                    esImportReciente(s.created_at) &&
+                    s.estado === "publicado";
+                  const pillEstado =
+                    s.estado === "publicado"
+                      ? "live"
+                      : s.estado === "despublicado"
+                        ? "paused"
+                        : "draft";
+                  const labelEstado =
+                    s.estado === "publicado"
+                      ? "Publicado"
+                      : s.estado === "despublicado"
+                        ? "Despublicado"
+                        : "Borrador";
                   return (
-                    <tr key={s.id} style={s.estado === "borrador" ? { opacity: 0.7 } : undefined}>
+                    <tr
+                      key={s.id}
+                      style={
+                        s.estado === "borrador" || s.estado === "despublicado"
+                          ? { opacity: 0.7 }
+                          : undefined
+                      }
+                    >
                       <td className="td-strong">
                         <span style={{ display: "inline-block", width: s.depth * 22 }} />
                         {esGrupo ? (
@@ -69,6 +100,11 @@ export default async function ProductsPage() {
                         )}
                         {s.icono ? `${s.icono} ` : ""}
                         {titulo}
+                        {esNuevo && (
+                          <span className="badge-soft" style={{ marginLeft: 8 }}>
+                            nuevo
+                          </span>
+                        )}
                       </td>
                       <td>{s.proveedorNombre}</td>
                       <td>
@@ -88,9 +124,10 @@ export default async function ProductsPage() {
                       </td>
                       <td className="mono">{!esGrupo && s.iva_tipo !== null ? `${s.iva_tipo}%` : "—"}</td>
                       <td>
-                        <span className={`pill ${s.estado === "publicado" ? "live" : "draft"}`}>
-                          {s.estado === "publicado" ? "Publicado" : "Borrador"}
-                        </span>
+                        <span className={`pill ${pillEstado}`}>{labelEstado}</span>
+                      </td>
+                      <td className="mono" style={{ whiteSpace: "nowrap", fontSize: 12, color: "var(--ink-2)" }}>
+                        {s.importado_at ? fmtFechaHora(s.importado_at) : "—"}
                       </td>
                       <td>
                         <VisibilityToggle id={s.id} activo={s.activo} />

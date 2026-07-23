@@ -37,7 +37,7 @@ export function ImportManager({
         const t = r.totales;
         setMsgAll(
           `Actualización completada en ${r.proveedores.length} proveedor(es): ` +
-            `${t.creados} creados, ${t.actualizados} actualizados, ${t.errores} con error ` +
+            `${t.creados} creados, ${t.actualizados} actualizados, ${t.despublicados} despublicados, ${t.errores} con error ` +
             `(detectados ${t.detectados}).`
         );
         router.refresh();
@@ -114,7 +114,7 @@ function FuenteCard({
         setMsg(r.error);
       } else {
         setMsg(
-          `Importación ${r.estado}: ${r.creados} creados, ${r.actualizados} actualizados, ${r.errores} con error (detectados ${r.detectados}, vía ${r.metodo}).`
+          `Importación ${r.estado}: ${r.creados} creados, ${r.actualizados} actualizados, ${r.despublicados} despublicados, ${r.errores} con error (detectados ${r.detectados}, vía ${r.metodo}).`
         );
         router.refresh();
       }
@@ -257,7 +257,7 @@ function FuenteCard({
               onClick={importar}
               disabled={pendingImp || !fuente.fuente_url}
             >
-              {pendingImp ? "Importando…" : "Importar a borradores"}
+              {pendingImp ? "Importando…" : "Importar y publicar"}
             </button>
           </div>
         </form>

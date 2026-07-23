@@ -20,7 +20,7 @@ const schema = z.object({
   category_id: z.string().uuid("Categoría no válida"),
   tipo_nodo: z.enum(["grupo", "servicio"]).default("servicio"),
   parent_id: z.string().uuid().optional().or(z.literal("")),
-  estado: z.enum(["borrador", "publicado"]).default("publicado"),
+  estado: z.enum(["borrador", "publicado", "despublicado"]).default("publicado"),
   tipo_pago: z.enum(["integrado", "derivado"]).optional().or(z.literal("")),
   precio_desde: z.string().optional(),
   iva_tipo: z.string().optional(),
@@ -312,7 +312,7 @@ export async function alternarVisibilidadServicio(
 
 export async function cambiarEstadoServicio(
   id: string,
-  estado: "borrador" | "publicado"
+  estado: "borrador" | "publicado" | "despublicado"
 ): Promise<void> {
   const ctx = await requirePanelContext();
   assertCapacidad(ctx, "catalog.edit");

@@ -265,6 +265,7 @@ export function ServiceForm({
             <select className="input" name="estado" defaultValue={servicio?.estado ?? "publicado"}>
               <option value="publicado">Publicado (visible en kiosko)</option>
               <option value="borrador">Borrador (oculto)</option>
+              <option value="despublicado">Despublicado (retirado de fuente)</option>
             </select>
           </div>
           <div className="field">

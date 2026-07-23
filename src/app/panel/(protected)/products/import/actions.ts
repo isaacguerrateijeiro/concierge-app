@@ -221,7 +221,7 @@ export async function ejecutarActualizacionMasiva(): Promise<
     return {
       tenantId: ctx.currentTenant.id,
       proveedores: [],
-      totales: { detectados: 0, creados: 0, actualizados: 0, errores: 0 },
+      totales: { detectados: 0, creados: 0, actualizados: 0, despublicados: 0, errores: 0 },
       error: e instanceof Error ? e.message : "Error en la actualización masiva",
     };
   }
@@ -245,6 +245,7 @@ export async function ejecutarImportacion(
       detectados: 0,
       creados: 0,
       actualizados: 0,
+      despublicados: 0,
       errores: 0,
       metodo: "ninguno",
       notas: [],

@@ -24,7 +24,13 @@ export interface ResultadoProveedorBatch extends Partial<ResultadoImportacion> {
 export interface ResultadoBatch {
   tenantId: string;
   proveedores: ResultadoProveedorBatch[];
-  totales: { detectados: number; creados: number; actualizados: number; errores: number };
+  totales: {
+    detectados: number;
+    creados: number;
+    actualizados: number;
+    despublicados: number;
+    errores: number;
+  };
 }
 
 // Actualiza todos los proveedores con fuente_url de un tenant. Si no se pasa
@@ -43,7 +49,7 @@ export async function actualizarCatalogoTenant(
   if (error) throw new Error(`No se pudieron listar proveedores: ${error.message}`);
 
   const proveedores: ResultadoProveedorBatch[] = [];
-  const totales = { detectados: 0, creados: 0, actualizados: 0, errores: 0 };
+  const totales = { detectados: 0, creados: 0, actualizados: 0, despublicados: 0, errores: 0 };
 
   for (const p of provs ?? []) {
     try {
@@ -51,6 +57,7 @@ export async function actualizarCatalogoTenant(
       totales.detectados += res.detectados;
       totales.creados += res.creados;
       totales.actualizados += res.actualizados;
+      totales.despublicados += res.despublicados;
       totales.errores += res.errores;
       proveedores.push({ providerId: p.id, nombre: p.nombre, ok: res.estado !== "error", ...res });
     } catch (e) {
