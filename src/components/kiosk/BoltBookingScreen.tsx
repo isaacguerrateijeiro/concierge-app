@@ -375,16 +375,22 @@ function CountryPicker({
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return PHONE_COUNTRIES;
-    return PHONE_COUNTRIES.filter((c) => {
-      const name = lang === "es" ? c.nameEs : c.nameEn;
-      return (
-        name.toLowerCase().includes(needle) ||
-        c.iso.toLowerCase().includes(needle) ||
-        c.dial.includes(needle.replace(/^\+/, "")) ||
-        `+${c.dial}`.includes(needle)
-      );
-    });
+    const locale = lang === "es" ? "es" : "en";
+    const nameOf = (c: PhoneCountry) => (lang === "es" ? c.nameEs : c.nameEn);
+    const list = !needle
+      ? [...PHONE_COUNTRIES]
+      : PHONE_COUNTRIES.filter((c) => {
+          const name = nameOf(c);
+          return (
+            name.toLowerCase().includes(needle) ||
+            c.iso.toLowerCase().includes(needle) ||
+            c.dial.includes(needle.replace(/^\+/, "")) ||
+            `+${c.dial}`.includes(needle)
+          );
+        });
+    return list.sort((a, b) =>
+      nameOf(a).localeCompare(nameOf(b), locale, { sensitivity: "base" })
+    );
   }, [q, lang]);
 
   return (

@@ -1,5 +1,5 @@
 // Países frecuentes para huéspedes internacionales en kiosko (Madrid).
-// Orden: turistas habituales primero; el resto alfabético por nombre EN.
+// El selector los ordena alfabéticamente según el idioma de la UI.
 
 export interface PhoneCountry {
   iso: string;
@@ -62,8 +62,8 @@ export const PHONE_COUNTRIES: PhoneCountry[] = [
   { iso: "ID", dial: "62", nameEs: "Indonesia", nameEn: "Indonesia", flag: "🇮🇩" },
 ];
 
-/** País por defecto para huéspedes (turismo internacional). */
-export const DEFAULT_PHONE_COUNTRY_ISO = "GB";
+/** País por defecto del prefijo (España). */
+export const DEFAULT_PHONE_COUNTRY_ISO = "ES";
 
 export function findPhoneCountry(iso: string): PhoneCountry {
   return (
