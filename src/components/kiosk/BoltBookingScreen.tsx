@@ -13,6 +13,7 @@ import {
 } from "@/lib/phoneCountries";
 import BrandLogo from "./BrandLogo";
 import Icon from "./Icon";
+import AddressAutocomplete, { type AddressPick } from "./AddressAutocomplete";
 
 type TimingMode = "now" | "scheduled";
 
@@ -37,6 +38,7 @@ export default function BoltBookingScreen({
   const [nationalPhone, setNationalPhone] = useState("");
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   const [dropoff, setDropoff] = useState("");
+  const [dropoffPick, setDropoffPick] = useState<AddressPick | null>(null);
   const [timing, setTiming] = useState<TimingMode>("now");
   const [scheduledAt, setScheduledAt] = useState("");
   const [expenseNote, setExpenseNote] = useState("");
@@ -62,8 +64,9 @@ export default function BoltBookingScreen({
   function handleContinue() {
     setTriedContinue(true);
     // Sin API Ride Booker aún: no enviamos reserva real.
-    // e164 queda listo para cuando haya API.
+    // e164 + dropoffPick (lat/lon) quedan listos para cuando haya API.
     void e164;
+    void dropoffPick;
   }
 
   return (
@@ -215,13 +218,21 @@ export default function BoltBookingScreen({
           </RouteRow>
           <div style={{ width: 2, height: 18, background: "var(--line)", marginLeft: 15 }} />
           <RouteRow color="#6B4EFF" label={t(lang, "boltDropoff")} pin="square">
-            <input
-              type="text"
+            <AddressAutocomplete
               value={dropoff}
-              onChange={(e) => setDropoff(e.target.value)}
+              onChange={(v) => {
+                setDropoff(v);
+                setDropoffPick(null);
+              }}
+              onPick={(pick) => {
+                setDropoffPick(pick);
+                setDropoff(pick.label);
+              }}
               placeholder={t(lang, "boltDropoffPlaceholder")}
-              style={inputStyle}
-              autoComplete="street-address"
+              loadingLabel={t(lang, "boltAddressLoading")}
+              emptyLabel={t(lang, "boltAddressEmpty")}
+              attributionLabel={t(lang, "boltAddressAttribution")}
+              inputStyle={inputStyle}
             />
             {triedContinue && !dropoffOk && <Hint>{t(lang, "boltDropoffRequired")}</Hint>}
           </RouteRow>
