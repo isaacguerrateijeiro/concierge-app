@@ -285,6 +285,9 @@ export async function importarProveedor(
       gruposPorTitulo.get(label.trim().toLowerCase());
     if (ya) {
       grupos.set(label, ya.id);
+      // No reasignar fuente_ref si otro nodo (p.ej. grupo vacío despublicado) ya la tiene.
+      const duenoRef = existentes.get(normalizeFuenteRef(ref));
+      const puedeSetRef = !ya.fuente_ref && (!duenoRef || duenoRef.id === ya.id);
       // Reapareció / sigue en fuente → publicado y visible (reutiliza nodo).
       const { error } = await supabase
         .from("services")
@@ -297,7 +300,7 @@ export async function importarProveedor(
           ...(parentFijoId && ya.id !== parentFijoId
             ? { parent_id: parentFijoId }
             : {}),
-          ...(ya.fuente_ref ? {} : { fuente_ref: ref }),
+          ...(puedeSetRef ? { fuente_ref: ref } : {}),
         })
         .eq("id", ya.id)
         .eq("tenant_id", tenantId);

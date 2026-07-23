@@ -479,6 +479,15 @@ export async function scrapeFuente(
     };
   }
 
+  // Si hay selectores de listado, priorizarlos: en webs como Big Bus el JSON-LD
+  // de la página de categoría suele ser 1 Product genérico (el listado), no las tarjetas.
+  const porSelectores = cfg.item ? leerSelectores(html, url, cfg) : [];
+  if (porSelectores.length > 0) {
+    notas.push(`Selectores: ${porSelectores.length} elementos.`);
+    const enriq = await enriquecerDesdeDetalle(porSelectores, cfg);
+    return { items: enriq.items, metodo: "selectores", notas: [...notas, ...enriq.notas] };
+  }
+
   const porJsonLd = leerJsonLd(html, url);
   if (porJsonLd.length > 0) {
     notas.push(`JSON-LD: ${porJsonLd.length} elementos.`);
@@ -486,13 +495,6 @@ export async function scrapeFuente(
     return { items: enriq.items, metodo: "json-ld", notas: [...notas, ...enriq.notas] };
   }
   notas.push("Sin datos JSON-LD utilizables.");
-
-  const porSelectores = leerSelectores(html, url, cfg);
-  if (porSelectores.length > 0) {
-    notas.push(`Selectores: ${porSelectores.length} elementos.`);
-    const enriq = await enriquecerDesdeDetalle(porSelectores, cfg);
-    return { items: enriq.items, metodo: "selectores", notas: [...notas, ...enriq.notas] };
-  }
   notas.push(
     cfg.item
       ? "Los selectores no encontraron elementos."
