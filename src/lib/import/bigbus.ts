@@ -12,13 +12,14 @@ import { normalizeFuenteRef, type ResultadoImportacion } from "./types";
 type DbClient = SupabaseClient<Database>;
 
 // ============================================================
-// Importador específico Big Bus Madrid.
-// Jerarquía fija (no la inventa el scrape genérico):
+// Importador específico Big Bus Madrid — sync de reemplazo.
+// Jerarquía fija:
 //   bigbus-madrid
 //     ├─ bigbus-bus-tours-madrid
 //     ├─ bigbus-excursiones-de-un-dia
 //     └─ bigbus-toledo-bus-tours
-// Solo actualiza hojas bajo esos grupos; nunca deja productos en la raíz.
+// Empareja por URL real de PDP o por slug/título; conserva tipo_pago
+// integrado; despublica cualquier hoja no vista en esta pasada.
 // ============================================================
 
 const ROOT_SLUG = "bigbus-madrid";
@@ -71,6 +72,17 @@ function mergeI18n(
     if (typeof v === "string" && v.trim()) out[k] = v.trim();
   }
   return out;
+}
+
+/** Quita hash y normaliza para comparar PDPs. */
+function refProducto(ref: string): string {
+  try {
+    const u = new URL(ref);
+    u.hash = "";
+    return normalizeFuenteRef(u.toString());
+  } catch {
+    return normalizeFuenteRef(ref.split("#")[0] ?? ref);
+  }
 }
 
 async function categoriaDestino(
@@ -156,6 +168,19 @@ async function asegurarGrupo(
   return data.id;
 }
 
+type Existente = {
+  id: string;
+  slug: string;
+  fuente_ref: string | null;
+  estado: string;
+  tipo_pago: string | null;
+  descripcion_i18n: Record<string, string>;
+  instrucciones_i18n: Record<string, string>;
+  punto_encuentro_i18n: Record<string, string>;
+  subtitulo_i18n: Record<string, string>;
+  duracion_i18n: Record<string, string>;
+};
+
 export async function importarBigBus(
   tenantId: string,
   providerId: string,
@@ -209,66 +234,68 @@ export async function importarBigBus(
   }
   notas.push(`Grupos fijos: ${LISTADOS.map((g) => g.slug).join(", ")}.`);
 
-  // 2) Servicios existentes del proveedor (hojas con fuente_ref).
+  // 2) Hojas existentes.
   const { data: existentesRaw } = await db
     .from("services")
     .select(
-      "id, slug, fuente_ref, tipo_nodo, estado, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
+      "id, slug, fuente_ref, tipo_nodo, tipo_pago, estado, titulo_i18n, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
     )
     .eq("tenant_id", tenantId)
     .eq("provider_id", providerId)
     .eq("tipo_nodo", "servicio");
 
-  type Existente = {
-    id: string;
-    slug: string;
-    fuente_ref: string | null;
-    estado: string;
-    descripcion_i18n: Record<string, string>;
-    instrucciones_i18n: Record<string, string>;
-    punto_encuentro_i18n: Record<string, string>;
-    subtitulo_i18n: Record<string, string>;
-    duracion_i18n: Record<string, string>;
-  };
   const porRef = new Map<string, Existente>();
+  const porSlug = new Map<string, Existente>();
+  const porTitulo = new Map<string, Existente>();
   const slugsUsados = new Set<string>();
+
   for (const e of existentesRaw ?? []) {
-    slugsUsados.add(e.slug);
-    if (!e.fuente_ref) continue;
-    porRef.set(normalizeFuenteRef(e.fuente_ref), {
+    const row: Existente = {
       id: e.id,
       slug: e.slug,
       fuente_ref: e.fuente_ref,
       estado: e.estado,
+      tipo_pago: e.tipo_pago,
       descripcion_i18n: asI18n(e.descripcion_i18n),
       instrucciones_i18n: asI18n(e.instrucciones_i18n),
       punto_encuentro_i18n: asI18n(e.punto_encuentro_i18n),
       subtitulo_i18n: asI18n(e.subtitulo_i18n),
       duracion_i18n: asI18n(e.duracion_i18n),
-    });
+    };
+    slugsUsados.add(e.slug);
+    porSlug.set(e.slug, row);
+    // Preferir el canónico (sin -2) al indexar por título.
+    const titulo = (asI18n(e.titulo_i18n).es ?? "").trim().toLowerCase();
+    if (titulo) {
+      const prev = porTitulo.get(titulo);
+      if (!prev || (!e.slug.match(/-\d+$/) && prev.slug.match(/-\d+$/))) {
+        porTitulo.set(titulo, row);
+      }
+    }
+    if (e.fuente_ref && !e.fuente_ref.includes("#")) {
+      porRef.set(refProducto(e.fuente_ref), row);
+    }
   }
 
-  const listadoRefs = new Set(LISTADOS.map((g) => normalizeFuenteRef(g.url)));
-  const vistos = new Set<string>();
+  const listadoRefs = new Set(LISTADOS.map((g) => refProducto(g.url)));
+  const idsVistos = new Set<string>();
   let detectados = 0;
   let creados = 0;
   let actualizados = 0;
   let despublicados = 0;
   let errores = 0;
-  let metodo: ResultadoImportacion["metodo"] = "selectores";
 
-  // 3) Scrapear cada listado y colgar productos bajo su grupo.
+  // 3) Scrapear listados y upsert bajo el grupo correcto.
   for (const listado of LISTADOS) {
     const parentId = grupoIds.get(listado.slug)!;
     const scrape = await scrapeFuente(listado.url, SELECTORES);
     notas.push(`${listado.slug}: ${scrape.metodo} → ${scrape.items.length} items.`);
     for (const n of scrape.notas) notas.push(`  ${n}`);
-    if (scrape.metodo !== "ninguno") metodo = scrape.metodo;
     detectados += scrape.items.length;
 
     for (const item of scrape.items) {
       try {
-        await upsertHojaBigBus(db, {
+        const r = await upsertHoja(db, {
           item,
           tenantId,
           providerId,
@@ -277,16 +304,17 @@ export async function importarBigBus(
           ahora,
           listadoRefs,
           porRef,
+          porSlug,
+          porTitulo,
           slugsUsados,
-          vistos,
-          onCreado: () => {
-            creados += 1;
-          },
-          onActualizado: () => {
-            actualizados += 1;
-          },
-          onOmitido: (m) => notas.push(m),
         });
+        if (r === "omitido") {
+          notas.push(`Omitido (listado): ${item.titulo}`);
+          continue;
+        }
+        idsVistos.add(r.id);
+        if (r.creado) creados += 1;
+        else actualizados += 1;
       } catch (e) {
         errores += 1;
         notas.push(`"${item.titulo}": ${e instanceof Error ? e.message : "error"}`);
@@ -294,20 +322,11 @@ export async function importarBigBus(
     }
   }
 
-  // 4) Despublicar solo hojas con fuente_ref que ya no están en ningún listado.
-  //    Nunca tocar los grupos fijos.
-  const hojasConRef = (existentesRaw ?? []).filter(
-    (e) => e.fuente_ref && e.tipo_nodo === "servicio"
-  );
-  const vistas = hojasConRef.filter((e) =>
-    vistos.has(normalizeFuenteRef(e.fuente_ref!))
-  ).length;
-  const cobertura = hojasConRef.length === 0 ? 1 : vistas / hojasConRef.length;
-
-  if (detectados > 0 && cobertura >= 0.5) {
-    for (const e of hojasConRef) {
-      if (!e.fuente_ref) continue;
-      if (vistos.has(normalizeFuenteRef(e.fuente_ref))) continue;
+  // 4) Sync de reemplazo: todo lo no visto en esta pasada → despublicado.
+  //    Incluye clones *-2 y refs con # del import roto.
+  if (detectados > 0) {
+    for (const e of existentesRaw ?? []) {
+      if (idsVistos.has(e.id)) continue;
       if (e.estado === "despublicado") continue;
       const { error } = await db
         .from("services")
@@ -321,24 +340,19 @@ export async function importarBigBus(
         despublicados += 1;
       }
     }
-    if (despublicados > 0) {
-      notas.push(`Despublicados ${despublicados} productos ausentes.`);
-    }
-  } else if (detectados === 0) {
-    notas.push("Sin items: no se despublica nada.");
-  } else {
     notas.push(
-      `Cobertura insuficiente (${vistas}/${hojasConRef.length}): no se despublica nada.`
+      `Sync reemplazo: ${actualizados} act. · ${creados} creados · ${despublicados} despublicados.`
     );
+  } else {
+    notas.push("Sin items scrapeados: no se despublica nada.");
   }
 
-  // Limpiar basura conocida del import genérico.
   await db
     .from("services")
     .update({ estado: "despublicado", activo: false })
     .eq("tenant_id", tenantId)
     .eq("provider_id", providerId)
-    .in("slug", ["grp-bus-tours-madrid", "entradas-y-pases-para-madrid"]);
+    .in("slug", ["grp-bus-tours-madrid", "entradas-y-pases-para-madrid", "bus"]);
 
   const estado: ResultadoImportacion["estado"] =
     detectados === 0 && errores === 0
@@ -358,7 +372,7 @@ export async function importarBigBus(
     errores,
     detalle: {
       importador: "bigbus",
-      metodo,
+      metodo: "selectores",
       notas,
       despublicados,
     } as unknown as Json,
@@ -376,7 +390,7 @@ export async function importarBigBus(
   };
 }
 
-async function upsertHojaBigBus(
+async function upsertHoja(
   db: DbClient,
   args: {
     item: ScrapedItem;
@@ -386,30 +400,25 @@ async function upsertHojaBigBus(
     parentId: string;
     ahora: string;
     listadoRefs: Set<string>;
-    porRef: Map<string, {
-      id: string;
-      slug: string;
-      fuente_ref: string | null;
-      estado: string;
-      descripcion_i18n: Record<string, string>;
-      instrucciones_i18n: Record<string, string>;
-      punto_encuentro_i18n: Record<string, string>;
-      subtitulo_i18n: Record<string, string>;
-      duracion_i18n: Record<string, string>;
-    }>;
+    porRef: Map<string, Existente>;
+    porSlug: Map<string, Existente>;
+    porTitulo: Map<string, Existente>;
     slugsUsados: Set<string>;
-    vistos: Set<string>;
-    onCreado: () => void;
-    onActualizado: () => void;
-    onOmitido: (msg: string) => void;
   }
-): Promise<void> {
-  const refNorm = normalizeFuenteRef(args.item.ref);
-  if (args.listadoRefs.has(refNorm)) {
-    args.onOmitido(`Omitido (listado): ${args.item.titulo}`);
-    return;
+): Promise<"omitido" | { id: string; creado: boolean }> {
+  // Solo aceptamos URL real de PDP (no el listado ni anclas #).
+  const productoUrl = args.item.url?.trim() ? refProducto(args.item.url) : null;
+  if (!productoUrl || args.listadoRefs.has(productoUrl) || productoUrl.includes("#")) {
+    return "omitido";
   }
-  args.vistos.add(refNorm);
+
+  const slugBase = slugify(args.item.titulo);
+  const tituloKey = args.item.titulo.trim().toLowerCase();
+  const existe =
+    args.porRef.get(productoUrl) ??
+    args.porSlug.get(slugBase) ??
+    args.porTitulo.get(tituloKey) ??
+    null;
 
   const descI18n = asI18n(args.item.descripcion_i18n);
   const texto = (args.item.descripcion ?? "").trim();
@@ -423,7 +432,9 @@ async function upsertHojaBigBus(
     : {};
   const duracion = (args.item.duracion ?? "").trim();
 
-  const existe = args.porRef.get(refNorm);
+  // Big Bus en kiosko: reserva integrada (stock/adaptador), no enlace externo.
+  const tipoPago = existe?.tipo_pago === "derivado" ? "integrado" : existe?.tipo_pago ?? "integrado";
+
   if (existe) {
     const { error } = await db
       .from("services")
@@ -437,50 +448,56 @@ async function upsertHojaBigBus(
           : existe.duracion_i18n,
         precio_desde: args.item.precio ?? null,
         imagen_url: args.item.imagen ?? null,
-        url_redireccion: args.item.url ?? null,
+        url_redireccion: null,
         parent_id: args.parentId,
-        tipo_pago: "derivado",
+        tipo_pago: tipoPago,
         tipo_nodo: "servicio",
         estado: "publicado",
         activo: true,
         importado_at: args.ahora,
-        fuente_ref: args.item.ref,
+        fuente_ref: productoUrl,
       })
       .eq("id", existe.id)
       .eq("tenant_id", args.tenantId);
     if (error) throw new Error(error.message);
-    args.onActualizado();
-    return;
+    // Reindex
+    args.porRef.set(productoUrl, { ...existe, fuente_ref: productoUrl, estado: "publicado" });
+    return { id: existe.id, creado: false };
   }
 
-  let slug = slugify(args.item.titulo) || "item";
+  let slug = slugBase || "item";
   let i = 2;
-  while (args.slugsUsados.has(slug)) slug = `${slugify(args.item.titulo)}-${i++}`;
+  while (args.slugsUsados.has(slug)) slug = `${slugBase}-${i++}`;
   args.slugsUsados.add(slug);
 
-  const { error } = await db.from("services").insert({
-    tenant_id: args.tenantId,
-    provider_id: args.providerId,
-    category_id: args.categoryId,
-    parent_id: args.parentId,
-    slug,
-    titulo_i18n: { es: args.item.titulo },
-    subtitulo_i18n: sub,
-    descripcion_i18n: descI18n,
-    instrucciones_i18n: instI18n,
-    duracion_i18n: duracion ? { es: duracion } : {},
-    punto_encuentro_i18n: {},
-    tipo_nodo: "servicio",
-    tipo_pago: "derivado",
-    estado: "publicado",
-    activo: true,
-    precio_desde: args.item.precio ?? null,
-    moneda: args.item.moneda || "EUR",
-    imagen_url: args.item.imagen ?? null,
-    url_redireccion: args.item.url ?? null,
-    fuente_ref: args.item.ref,
-    importado_at: args.ahora,
-  });
-  if (error) throw new Error(error.message);
-  args.onCreado();
+  const { data, error } = await db
+    .from("services")
+    .insert({
+      tenant_id: args.tenantId,
+      provider_id: args.providerId,
+      category_id: args.categoryId,
+      parent_id: args.parentId,
+      slug,
+      titulo_i18n: { es: args.item.titulo },
+      subtitulo_i18n: sub,
+      descripcion_i18n: descI18n,
+      instrucciones_i18n: instI18n,
+      duracion_i18n: duracion ? { es: duracion } : {},
+      punto_encuentro_i18n: {},
+      tipo_nodo: "servicio",
+      tipo_pago: "integrado",
+      estado: "publicado",
+      activo: true,
+      precio_desde: args.item.precio ?? null,
+      moneda: args.item.moneda || "EUR",
+      imagen_url: args.item.imagen ?? null,
+      url_redireccion: null,
+      fuente_ref: productoUrl,
+      importado_at: args.ahora,
+      capacidad_diaria: 30,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "no creado");
+  return { id: data.id, creado: true };
 }

@@ -181,14 +181,22 @@ function leerSelectores(html: string, base: string, cfg: FuenteConfig): ScrapedI
     const titulo = cfg.titulo ? $el.find(cfg.titulo).first().text().trim() : $el.text().trim();
     if (!titulo) return;
     const precio = cfg.precio ? parsePrecio($el.find(cfg.precio).first().text()) : null;
-    // Enlace: selector explícito, o el propio elemento si es un <a> (listas de
-    // enlaces), o el primer <a> descendiente.
-    const enlaceEl = cfg.enlace
-      ? $el.find(cfg.enlace).first()
-      : $el.is("a")
-        ? $el
-        : $el.find("a").first();
-    const url = absolutizar(base, enlaceEl.attr("href"));
+    // Enlace: selector explícito, o el propio elemento si es un <a>, o el
+    // primer <a> descendiente con href usable (Big Bus mete un <a href=""> vacío).
+    let hrefRaw: string | undefined;
+    if (cfg.enlace) {
+      hrefRaw = $el.find(cfg.enlace).first().attr("href") ?? undefined;
+    } else if ($el.is("a")) {
+      hrefRaw = $el.attr("href") ?? undefined;
+    } else {
+      $el.find("a").each((_, a) => {
+        if (hrefRaw) return;
+        const h = ($(a).attr("href") ?? "").trim();
+        if (!h || h === "#" || h.startsWith("javascript:")) return;
+        hrefRaw = h;
+      });
+    }
+    const url = absolutizar(base, hrefRaw);
     let imagen: string | null = null;
     if (cfg.imagen) {
       const img = $el.find(cfg.imagen).first();
