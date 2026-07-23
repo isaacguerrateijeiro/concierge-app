@@ -117,9 +117,9 @@ export async function importarProveedor(
   }
 
   // Listados adicionales (p.ej. Big Bus: Bus Tours + Excursiones).
-  const entradasScrape: { url: string; grupo?: string | null }[] = [
-    { url: prov.fuente_url },
-  ];
+  // Opcional: slug de un grupo ya existente para no crear duplicados.
+  type GrupoCfg = { url: string; label: string | null; slug: string | null };
+  const gruposCfg: GrupoCfg[] = [];
   if (Array.isArray(cfg.grupos)) {
     for (const g of cfg.grupos) {
       if (!g || typeof g !== "object" || Array.isArray(g)) continue;
@@ -128,15 +128,26 @@ export async function importarProveedor(
         typeof (g as { label?: unknown }).label === "string"
           ? (g as { label: string }).label
           : null;
-      if (!url) continue;
-      if (entradasScrape.some((e) => normalizeFuenteRef(e.url) === normalizeFuenteRef(url))) {
-        // Misma URL que la principal: solo aporta etiqueta de grupo.
-        const principal = entradasScrape[0];
-        if (!principal.grupo && label) principal.grupo = label;
-        continue;
-      }
-      entradasScrape.push({ url, grupo: label });
+      const slug =
+        typeof (g as { slug?: unknown }).slug === "string"
+          ? (g as { slug: string }).slug.trim() || null
+          : null;
+      if (!url && !label && !slug) continue;
+      gruposCfg.push({ url, label, slug });
     }
+  }
+
+  const entradasScrape: { url: string; grupo?: string | null }[] = [
+    { url: prov.fuente_url },
+  ];
+  for (const g of gruposCfg) {
+    if (!g.url) continue;
+    if (entradasScrape.some((e) => normalizeFuenteRef(e.url) === normalizeFuenteRef(g.url))) {
+      const principal = entradasScrape[0];
+      if (!principal.grupo && g.label) principal.grupo = g.label;
+      continue;
+    }
+    entradasScrape.push({ url: g.url, grupo: g.label });
   }
 
   const scrape =
@@ -147,21 +158,21 @@ export async function importarProveedor(
   const ahora = new Date().toISOString();
   const listadoRefs = new Set(entradasScrape.map((e) => normalizeFuenteRef(e.url)));
 
-  // Servicios ya importados de este proveedor (idempotencia por fuente_ref).
+  // Servicios del proveedor (con o sin fuente_ref) para reutilizar grupos existentes.
   const { data: existentesRaw } = await supabase
     .from("services")
     .select(
-      "id, slug, fuente_ref, tipo_nodo, estado, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
+      "id, slug, fuente_ref, tipo_nodo, estado, titulo_i18n, descripcion_i18n, instrucciones_i18n, punto_encuentro_i18n, subtitulo_i18n, duracion_i18n"
     )
     .eq("tenant_id", tenantId)
-    .eq("provider_id", providerId)
-    .not("fuente_ref", "is", null);
+    .eq("provider_id", providerId);
   type Existente = {
     id: string;
     slug: string;
     tipo_nodo: string;
     estado: string;
-    fuente_ref: string;
+    fuente_ref: string | null;
+    titulo_es: string;
     descripcion_i18n: Record<string, string>;
     instrucciones_i18n: Record<string, string>;
     punto_encuentro_i18n: Record<string, string>;
@@ -169,22 +180,34 @@ export async function importarProveedor(
     duracion_i18n: Record<string, string>;
   };
   const existentes = new Map<string, Existente>();
+  const gruposPorSlug = new Map<string, Existente>();
+  const gruposPorTitulo = new Map<string, Existente>();
   for (const e of existentesRaw ?? []) {
-    if (!e.fuente_ref) continue;
-    existentes.set(normalizeFuenteRef(e.fuente_ref), {
+    const tituloEs = asI18n(e.titulo_i18n).es ?? "";
+    const row: Existente = {
       id: e.id,
       slug: e.slug,
       tipo_nodo: e.tipo_nodo,
       estado: e.estado,
       fuente_ref: e.fuente_ref,
+      titulo_es: tituloEs,
       descripcion_i18n: asI18n(e.descripcion_i18n),
       instrucciones_i18n: asI18n(e.instrucciones_i18n),
       punto_encuentro_i18n: asI18n(e.punto_encuentro_i18n),
       subtitulo_i18n: asI18n(e.subtitulo_i18n),
       duracion_i18n: asI18n(e.duracion_i18n),
-    });
+    };
+    if (e.fuente_ref) existentes.set(normalizeFuenteRef(e.fuente_ref), row);
+    if (e.tipo_nodo === "grupo") {
+      gruposPorSlug.set(e.slug, row);
+      if (tituloEs) gruposPorTitulo.set(tituloEs.trim().toLowerCase(), row);
+    }
   }
   const slugsUsados = new Set<string>((existentesRaw ?? []).map((e) => e.slug));
+  const slugPorLabel = new Map<string, string>();
+  for (const g of gruposCfg) {
+    if (g.label && g.slug) slugPorLabel.set(g.label.trim().toLowerCase(), g.slug);
+  }
 
   let creados = 0;
   let actualizados = 0;
@@ -242,17 +265,27 @@ export async function importarProveedor(
   for (const label of etiquetas) {
     const ref = `grupo:${slugify(label)}`;
     vistos.add(normalizeFuenteRef(ref));
-    const ya = existentes.get(normalizeFuenteRef(ref));
+    const slugCfg = slugPorLabel.get(label.trim().toLowerCase());
+    const ya =
+      (slugCfg ? gruposPorSlug.get(slugCfg) : undefined) ??
+      existentes.get(normalizeFuenteRef(ref)) ??
+      gruposPorSlug.get(`grp-${slugify(label)}`) ??
+      gruposPorTitulo.get(label.trim().toLowerCase());
     if (ya) {
       grupos.set(label, ya.id);
-      // Reapareció / sigue en fuente → publicado y visible.
+      // Reapareció / sigue en fuente → publicado y visible (reutiliza nodo).
       const { error } = await supabase
         .from("services")
         .update({
           estado: "publicado",
           activo: true,
           importado_at: ahora,
-          titulo_i18n: { es: label },
+          // No pisar título curado si ya existe; solo si estaba vacío.
+          ...(ya.titulo_es ? {} : { titulo_i18n: { es: label } }),
+          ...(parentFijoId && ya.id !== parentFijoId
+            ? { parent_id: parentFijoId }
+            : {}),
+          ...(ya.fuente_ref ? {} : { fuente_ref: ref }),
         })
         .eq("id", ya.id)
         .eq("tenant_id", tenantId);
@@ -264,13 +297,14 @@ export async function importarProveedor(
       }
       continue;
     }
-    const slug = unicoSlug(`grp-${slugify(label)}`, slugsUsados);
+    const slug = unicoSlug(slugCfg || `grp-${slugify(label)}`, slugsUsados);
     const { data, error } = await supabase
       .from("services")
       .insert({
         tenant_id: tenantId,
         provider_id: providerId,
         category_id: categoryId,
+        parent_id: parentFijoId,
         slug,
         titulo_i18n: { es: label },
         subtitulo_i18n: {},
@@ -301,9 +335,9 @@ export async function importarProveedor(
         continue;
       }
       vistos.add(refNorm);
+      // Preferir el grupo del listado; si no, el padre fijo (Free Tour, etc.).
       const parentId =
-        parentFijoId ??
-        (item.grupo ? grupos.get(item.grupo.trim()) ?? null : null);
+        (item.grupo ? grupos.get(item.grupo.trim()) ?? null : null) ?? parentFijoId;
       const existe = existentes.get(refNorm);
       const fila = mapItem(item, { tenantId, providerId, categoryId, parentId, ahora });
 

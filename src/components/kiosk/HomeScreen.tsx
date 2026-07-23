@@ -357,7 +357,10 @@ export default function HomeScreen({ catalog, lang, onSelect }: HomeScreenProps)
       {categories.map((cat, ci) => {
         // Solo nodos de nivel superior de la categoría (los grupos despliegan
         // sus hijos al pulsarlos). Usamos el árbol para conocer el nº de hijos.
-        const servicios = buildServiceTree(catalog.services, cat.slug);
+        // Ocultar grupos vacíos (p.ej. duplicados de import sin hijos).
+        const servicios = buildServiceTree(catalog.services, cat.slug).filter(
+          (s) => s.tipo_nodo !== "grupo" || s.children.length > 0
+        );
         if (servicios.length === 0) return null;
 
         // Heurística que reproduce el diseño: más de 4 servicios -> 3 columnas,
