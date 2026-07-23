@@ -1,4 +1,4 @@
-/** Resultado común de importadores (genérico, Big Bus, etc.). */
+/** Resultado común de importadores (genérico, Big Bus, Free Tour, etc.). */
 export interface ResultadoImportacion {
   estado: "ok" | "parcial" | "error";
   detectados: number;

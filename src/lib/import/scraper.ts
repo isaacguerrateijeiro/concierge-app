@@ -424,7 +424,8 @@ async function enriquecerDesdeDetalle(
 // Descarga HTML con redirección manual usando el módulo nativo de Node.
 // `fetch`/undici tiene un límite de headers (UND_ERR_HEADERS_OVERFLOW) que
 // algunos CDN anti-bot superan; los módulos http/https nativos no tienen esa restricción.
-function fetchHtml(url: string, maxRedirects = 5): Promise<{ status: number; body: string }> {
+/** Descarga HTML de una URL (listado o PDP). Usado por importadores específicos. */
+export function fetchHtml(url: string, maxRedirects = 5): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const attemptUrl = (current: string, redirectsLeft: number) => {
       const parsed = new URL(current);

@@ -225,9 +225,9 @@ export function ServiceTile({
             letterSpacing: "-0.01em",
           }}
         >
-          {tieneFoto || big ? tituloCorto : service.proveedor.nombre}
+          {tituloCorto}
         </div>
-        {(big || tieneFoto) && subtitulo && (
+        {subtitulo && (
           <div
             style={{
               fontFamily: "var(--sans)",

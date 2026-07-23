@@ -11,6 +11,7 @@ import {
   type TierConfig,
 } from "./scraper";
 import { importarBigBus } from "./bigbus";
+import { importarFreeTour } from "./freetour";
 import { normalizeFuenteRef, type ResultadoImportacion } from "./types";
 
 export type { ResultadoImportacion } from "./types";
@@ -75,13 +76,20 @@ export async function importarProveedor(
     prov.integracion_config && typeof prov.integracion_config === "object"
       ? prov.integracion_config
       : {};
-  // Big Bus tiene importador propio (jerarquía fija); no usa el genérico.
+  // Importadores específicos (jerarquía fija / sync-replace); no usan el genérico.
   if (
     prov.slug === "bigbus" ||
     integracion.tipo === "bigbus" ||
     cfg.importador === "bigbus"
   ) {
     return importarBigBus(tenantId, providerId, supabase);
+  }
+  if (
+    prov.slug === "madridapie" ||
+    cfg.importador === "freetour" ||
+    cfg.importador === "madridapie"
+  ) {
+    return importarFreeTour(tenantId, providerId, supabase);
   }
   const detalleCfg =
     cfg.detalle && typeof cfg.detalle === "object" && !Array.isArray(cfg.detalle)
